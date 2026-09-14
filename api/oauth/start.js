@@ -1,0 +1,3 @@
+import crypto from 'node:crypto';
+import { callbackUrl,configured } from '../_lib/google.js';
+export default function handler(req,res){if(!configured())return res.redirect('/?sync=configuration-required');let state=crypto.randomBytes(24).toString('base64url');res.setHeader('Set-Cookie',`hearth_oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`);let query=new URLSearchParams({client_id:process.env.GOOGLE_CLIENT_ID,redirect_uri:callbackUrl(),response_type:'code',scope:'https://www.googleapis.com/auth/calendar',access_type:'offline',prompt:'consent',state});res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${query}`)}

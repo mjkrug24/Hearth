@@ -10,6 +10,19 @@ A Google Calendar-inspired front end with event management, calendar visibility 
 
 The app still works in local-only mode if `.env` has not been configured. The server must be used for the Google connection because OAuth refresh tokens are kept server-side.
 
+## Deploy on Vercel
+
+The repository includes Vercel serverless OAuth and Calendar API routes. In **Vercel → Project → Settings → Environment Variables**, set these for Production (and Preview if you use preview deployments):
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `TOKEN_ENCRYPTION_KEY` — a long, randomly generated private value
+- `APP_BASE_URL` — your exact public origin, for example `https://your-project.vercel.app`
+
+In Google Cloud Console, add `${APP_BASE_URL}/auth/google/callback` to **Authorized redirect URIs**. For the example above, that is `https://your-project.vercel.app/auth/google/callback`. Do not use the localhost URI for a Vercel deployment.
+
+Vercel functions keep each person’s encrypted OAuth token in their own secure browser cookie, so users can connect independent Google accounts without sharing credentials or requiring a database.
+
 ## Google two-way sync
 
 The UI intentionally does not store Google credentials in the browser. A production sync service should own OAuth tokens and use the Google Calendar API:
