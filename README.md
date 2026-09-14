@@ -4,7 +4,11 @@ A Google Calendar-inspired front end with event management, calendar visibility 
 
 ## Run it
 
-Open `index.html` in a browser, or serve the folder with any static server.
+1. Copy `.env.example` to `.env` and add your Google OAuth client ID and secret.
+2. In Google Cloud Console, add `http://localhost:3000/auth/google/callback` as an authorized redirect URI.
+3. Run `node server.js`, then open `http://localhost:3000`.
+
+The app still works in local-only mode if `.env` has not been configured. The server must be used for the Google connection because OAuth refresh tokens are kept server-side.
 
 ## Google two-way sync
 
@@ -19,4 +23,4 @@ The UI intentionally does not store Google credentials in the browser. A product
 
 Useful backend endpoints are `GET /auth/google`, `GET /auth/google/callback`, `POST /api/events`, `PATCH /api/events/:id`, `DELETE /api/events/:id`, and `POST /api/google/webhook`.
 
-The current Connect flow is deliberately a visual/local prototype; completing the above server-side integration activates genuine two-way sync safely.
+The included `server.js` implements the authorization-code flow, token refresh, event pull, and create/update/delete against the primary Google calendar. Calendar changes made in Hearth are pushed when saved; the **Sync now** button pulls changes made in Google Calendar.
