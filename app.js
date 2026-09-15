@@ -420,8 +420,6 @@ function renderSyncDetails(){
 function renderDashboard(){householdUI.dashboard();}
 function renderMealWeek(){householdUI.renderWeek();}
 function openRecipe(...args){householdUI.openRecipe(...args);}
-function renderRecipe(){householdUI.renderRecipe();}
-async function addShoppingFor(...args){return householdUI.shopping(...args);}
 async function completeItem(...args){return householdUI.complete(...args);}
 function decorateTimedEvents(){for(const el of $$('.timed-event')){const event=displayEvents().find(e=>e.id===el.dataset.event);if(event&&!event.pending&&['owner','writer'].includes(calendarFor(event).accessRole)&&(!event.eventType||event.eventType==='default')){el.classList.add('draggable-event');el.insertAdjacentHTML('beforeend','<span class="resize-handle" title="Drag to change end time" aria-hidden="true"></span>');}}}
 
