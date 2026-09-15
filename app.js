@@ -7,7 +7,7 @@ import {overlaps,shiftedEvent,expandLocal,mergePending} from './planning.js';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}};
 const write=(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value));}catch{toast('Device storage is full or unavailable.');}};
-const localCalendar={id:'local',name:'On this device',backgroundColor:'#1967d2',foregroundColor:'#ffffff',accessRole:'owner'};
+const localCalendar={id:'local',name:'On this device',backgroundColor:'#285740',foregroundColor:'#ffffff',accessRole:'owner'};
 const settings=read('hearth-settings',{theme:read('hearth-dark-mode',false)?'dark':'system',view:'month'});
 const state={date:new Date(),mini:new Date(new Date().getFullYear(),new Date().getMonth(),1),view:settings.view||'month',app:settings.destination||'home',connected:false,configured:false,loading:false,mutating:false,events:[],calendars:[localCalendar],hidden:read('hearth-hidden-calendars',[]),editing:null,home:read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]}),shared:false,homeReady:false,account:'device',members:[],partner:null,verified:false,lastCalendarSync:null,lastHomeSync:null,lastError:'',mealWeek:addDays(new Date(),-((new Date().getDay()+6)%7))};
 const allRecipes=()=>[...recipes,...homeItems('recipes')];

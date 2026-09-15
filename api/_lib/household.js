@@ -25,5 +25,10 @@ export function validateItem(e,members){
 }
 export function validateChanges(changes,members){
  if(!Array.isArray(changes)||!changes.length||changes.length>200)throw failure('Choose between 1 and 200 changes.');
- const seen=new Set();return changes.map(c=>{if(seen.has(c.item?.id))throw failure('Duplicate item in operation.');seen.add(c.item?.id);return {item:validateItem(c.item,members),remove:!!c.remove};});
+ const seen=new Set();return changes.map(c=>{
+  if(!c||seen.has(c.item?.id))throw failure('Duplicate or invalid item in operation.');seen.add(c.item?.id);
+  // Deletion depends on identity, not stale recipe fields or former assignees.
+  if(c.remove){if(!uuid.test(c.item?.id))throw failure('Invalid household item.');return {item:{id:c.item.id},remove:true};}
+  return {item:validateItem(c.item,members),remove:false};
+ });
 }
