@@ -205,6 +205,19 @@ async function uploadDeviceDataToPocketBase(){
 
 function updatePocketBaseUI(){
  const isAuth=pb.isAuthenticated();
+ const accountText=$('#pbAccountText'),accountBtn=$('#pbAccountBtn');
+ if(accountText){
+  if(isAuth){
+   const user=pb.user();
+   accountText.textContent=(user?.email||'User').split('@')[0];
+  }else{
+   accountText.textContent='Sign In';
+  }
+ }
+ if(accountBtn){
+  accountBtn.classList.toggle('connected',isAuth);
+  accountBtn.title=isAuth?`Signed in as ${pb.user()?.email||'PocketBase'}`:'Sign in to PocketBase';
+ }
  const disconnected=$('#pbDisconnectedState'),connected=$('#pbConnectedState');
  if(!disconnected||!connected)return;
  disconnected.classList.toggle('hidden',isAuth);
