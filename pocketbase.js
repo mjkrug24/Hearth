@@ -3,56 +3,30 @@
 const STORAGE_URL = 'hearth-pb-url';
 const STORAGE_AUTH = 'hearth-pb-auth';
 
-function getStorage() {
-  try {
-    if (typeof localStorage !== 'undefined') return localStorage;
-  } catch {}
-  return null;
-}
-
 function readJson(key, fallback = null) {
-  try {
-    const storage = getStorage();
-    if (!storage) return fallback;
-    return JSON.parse(storage.getItem(key)) ?? fallback;
-  } catch { return fallback; }
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
 }
 
 function writeJson(key, val) {
-  try {
-    const storage = getStorage();
-    if (storage) storage.setItem(key, JSON.stringify(val));
-  } catch {}
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
 }
 
-export class PocketBaseClient {
+class PocketBaseClient {
   constructor() {
     this.listeners = new Map(); // topic -> Set(callbacks)
     this.sse = null;
     this.clientId = null;
-    let defaultUrl = 'http://localhost:8090';
-    try {
-      if (typeof location !== 'undefined' && location.protocol && location.hostname) {
-        defaultUrl = location.protocol + '//' + location.hostname + ':8090';
-      }
-    } catch {}
-    const storage = getStorage();
-    this.url = (storage ? storage.getItem(STORAGE_URL) : null) || defaultUrl;
+    this.url = localStorage.getItem(STORAGE_URL) || (location.protocol + '//' + location.hostname + ':8090');
     this.auth = readJson(STORAGE_AUTH, null);
   }
 
   getUrl() {
-    let u = (this.url || '').trim().replace(/\/+$/, '');
-    if (u && !/^https?:\/\//i.test(u)) u = 'http://' + u;
-    return u;
+    return this.url.replace(/\/+$/, '');
   }
 
   setUrl(newUrl) {
-    let clean = (newUrl || '').trim().replace(/\/+$/, '');
-    if (clean && !/^https?:\/\//i.test(clean)) clean = 'http://' + clean;
-    this.url = clean;
-    const storage = getStorage();
-    if (storage) storage.setItem(STORAGE_URL, this.url);
+    this.url = (newUrl || '').trim().replace(/\/+$/, '');
+    localStorage.setItem(STORAGE_URL, this.url);
     if (this.sse) {
       this.disconnectRealtime();
       if (this.isAuthenticated()) this.connectRealtime();
@@ -116,8 +90,7 @@ export class PocketBaseClient {
   logout() {
     this.disconnectRealtime();
     this.auth = null;
-    const storage = getStorage();
-    if (storage) storage.removeItem(STORAGE_AUTH);
+    localStorage.removeItem(STORAGE_AUTH);
   }
 
   // --- Generic Collection Helpers ---
@@ -267,3 +240,4 @@ export class PocketBaseClient {
 }
 
 export const pb = new PocketBaseClient();
+
