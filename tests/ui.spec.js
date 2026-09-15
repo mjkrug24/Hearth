@@ -7,7 +7,7 @@ async function setup(page,connected=true){
  await page.route('**/api/google/status',r=>r.fulfill({json:{configured:true,connected}}));
  await page.route('**/api/household',r=>r.fulfill({json:{shared:false,items:[]}}));
  await page.route('**/api/google/events?*',r=>r.fulfill({json:{calendars,events:[work,{...work,id:'mine::2',googleEventId:'2',googleCalendarId:'mine',title:'Lunch',startDateTime:day+'T17:00:00Z',endDateTime:day+'T18:00:00Z'}]}}));
- await page.goto('/');await expect(page.locator('#syncStatus')).toContainText(connected?'Synced':'Sign in');
+ await page.goto('/');await page.getByRole('button',{name:'Calendar',exact:true}).click();await expect(page.locator('#syncStatus')).toContainText(connected?'Synced':'Sign in');
 }
 test('24h timeline and event geometry align; overlapping events split',async({page})=>{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));await setup(page);
@@ -33,14 +33,14 @@ test('Navigation advances the correct period and six-row months are complete',as
 });
 test('Household workflows and recipe details work; theme persists',async({page})=>{
  await setup(page,false);await page.getByRole('button',{name:'Home',exact:true}).click();
- await page.getByLabel('Task name',{exact:true}).fill('Take out recycling');await page.locator('#taskForm button').click();await expect(page.locator('#taskList')).toContainText('Take out recycling');await page.selectOption('#taskFilter','all');await page.getByLabel('Complete Take out recycling').check();
- await page.getByLabel('Grocery item',{exact:true}).fill('eggs');await page.locator('#groceryForm button').click();await page.getByRole('button',{name:/Vegetable omelet/}).click();await expect(page.locator('#recipeDetails')).toContainText('Whisk 4 eggs');await page.click('#addIngredients');await expect(page.locator('#groceryList')).toContainText('spinach');
+ await page.getByRole('button',{name:'Tasks',exact:true}).click();await page.getByLabel('Task name',{exact:true}).fill('Take out recycling');await page.locator('#taskForm button').click();await expect(page.locator('#taskList')).toContainText('Take out recycling');await page.selectOption('#taskFilter','all');await page.getByLabel('Complete Take out recycling').check();
+ await page.getByRole('button',{name:'Shopping',exact:true}).click();await page.getByLabel('Grocery item',{exact:true}).fill('eggs');await page.locator('#groceryForm button').click();await page.getByRole('button',{name:'Meals',exact:true}).click();await page.getByRole('button',{name:/Vegetable omelet/}).click();await expect(page.locator('#recipeDetails')).toContainText('Whisk 4 eggs');await page.click('#addIngredients');await page.click('#confirmPreview');await expect(page.locator('#groceryList')).toContainText('spinach');
  await page.click('#themeBtn');const theme=await page.locator('html').getAttribute('data-theme');await page.reload();await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
 });
 test('Add, view, scale, add ingredients, and delete custom recipe',async({page})=>{
  await setup(page,false);
  await page.getByRole('button',{name:'Home',exact:true}).click();
- await page.click('#addRecipeBtn');
+ await page.getByRole('button',{name:'Meals',exact:true}).click();await page.click('#addRecipeBtn');
  await expect(page.locator('#customRecipeDialog')).toBeVisible();
  await page.fill('#customRecipeName','Garlic Butter Salmon');
  await page.fill('#customRecipeMinutes','20');
@@ -72,7 +72,7 @@ test('Add, view, scale, add ingredients, and delete custom recipe',async({page})
  await expect(page.locator('#editRecipeBtn')).toBeVisible();
  await page.fill('#recipeServings','4');
  await expect(page.locator('#recipeDetails')).toContainText('4 fillet salmon');
- await page.click('#addIngredients');
+ await page.click('#addIngredients');await page.click('#confirmPreview');
  await expect(page.locator('#recipeDialog')).not.toBeVisible();
  await expect(page.locator('#groceryList')).toContainText('salmon');
  await expect(page.locator('#groceryList')).toContainText('butter');

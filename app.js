@@ -1,24 +1,26 @@
+import {installHousehold} from './household-ui.js';
+import {kinds,applyChanges} from './household-model.js';
 import {dateKey,parseDay,addDays,clock,escapeHTML as esc,safeColor,normalizeEvent,occursOn,layoutEvents,monthDates} from './calendar-model.js';
-import {recipes,matches,mealGroups,normalizeCustomRecipe} from './recipes.js';
+import {recipes,mealGroups,normalizeCustomRecipe} from './recipes.js';
 import {Outbox} from './offline.js';
-import {nextDue,overlaps,shiftedEvent,expandLocal,stableUUID,shoppingNeeds,mergePending,normalizedFood} from './planning.js';
+import {overlaps,shiftedEvent,expandLocal,mergePending} from './planning.js';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}};
 const write=(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value));}catch{toast('Device storage is full or unavailable.');}};
 const localCalendar={id:'local',name:'On this device',backgroundColor:'#1967d2',foregroundColor:'#ffffff',accessRole:'owner'};
 const settings=read('hearth-settings',{theme:read('hearth-dark-mode',false)?'dark':'system',view:'month'});
-const state={date:new Date(),mini:new Date(new Date().getFullYear(),new Date().getMonth(),1),view:settings.view||'month',app:'calendar',connected:false,configured:false,loading:false,mutating:false,events:[],calendars:[localCalendar],hidden:read('hearth-hidden-calendars',[]),editing:null,home:read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]}),customRecipes:read('hearth-custom-recipes',[]),shared:false,homeReady:false,account:'device',members:[],partner:null,verified:false,lastCalendarSync:null,lastHomeSync:null,lastError:'',mealWeek:addDays(new Date(),-((new Date().getDay()+6)%7))};
-const allRecipes=()=>[...recipes,...(state.customRecipes||[])];
+const state={date:new Date(),mini:new Date(new Date().getFullYear(),new Date().getMonth(),1),view:settings.view||'month',app:settings.destination||'home',connected:false,configured:false,loading:false,mutating:false,events:[],calendars:[localCalendar],hidden:read('hearth-hidden-calendars',[]),editing:null,home:read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]}),shared:false,homeReady:false,account:'device',members:[],partner:null,verified:false,lastCalendarSync:null,lastHomeSync:null,lastError:'',mealWeek:addDays(new Date(),-((new Date().getDay()+6)%7))};
+const allRecipes=()=>[...recipes,...homeItems('recipes')];
 const outbox=new Outbox();
 // Old synced data is never reused across Google accounts or uploaded on connection.
 state.localEvents=read('hearth-events',[]).filter(e=>!e.googleEventId).map(e=>normalizeEvent({...e,calendar:'local',googleCalendarId:null}));
 state.events=[...state.localEvents];
-for(const kind of ['tasks','groceries','pantry','meals']) state.home[kind]=(state.home[kind]||[]).map(item=>({...item,id:item.id||crypto.randomUUID(),kind}));
+for(const kind of kinds) state.home[kind]=(state.home[kind]||[]).map(item=>({...item,id:item.id||crypto.randomUUID(),kind}));
 const zone=Intl.DateTimeFormat().resolvedOptions().timeZone;
 const monthTitle=d=>d.toLocaleDateString(undefined,{month:'long',year:'numeric'});
 const shortDate=d=>d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
 const timeLabel=t=>{const [h,m]=t.split(':').map(Number);return (h%12||12)+(m?':'+String(m).padStart(2,'0'):'')+(h<12?' AM':' PM');};
-let toastTimer,syncSequence=0,shareCalendar=null,activeRecipe=null,editingItem=null;
+let toastTimer,syncSequence=0,shareCalendar=null,editingItem=null;
 function toast(message){$('#toast').textContent=message;$('#toast').classList.remove('hidden');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),6000);}
 async function api(url,options={}){const r=await fetch(url,{cache:'no-store',credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...options.headers}});const data=r.status===204?null:await r.json().catch(()=>({error:'The service returned an unexpected response.'}));if(!r.ok){const error=new Error(data?.error||'Request failed');error.status=r.status;throw error;}return data;}
 const post=(url,body,method='POST')=>api(url,{method,body:JSON.stringify(body)});
@@ -41,7 +43,7 @@ async function sync(){
   finally{if(sequence===syncSequence){state.loading=false;$('#connectBtn').disabled=false;}}
 }
 async function initConnection(){
-  try{const s=await api('/api/google/status');state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.members=s.members||[];state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){state.events=[];await sync();await flushQueue();}}
+  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$('dialog[open]').forEach(d=>d.close());state.shared=false;restoreDeviceHome();}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.members=s.members||[];state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){state.events=[];await sync();await flushQueue();}}
   catch{const cached=read('hearth-account-cache',null);if(cached){Object.assign(state,{account:cached.account,calendars:cached.calendars,events:cached.events,connected:true,shared:cached.shared,home:cached.home||state.home,members:cached.members||[],partner:cached.partner,verified:false});$('#syncStatus').textContent='Offline · cached calendars';$('#connectBtn').textContent='Retry sync';}else $('#syncStatus').textContent='Offline · local calendar';}
   await loadHome();render();
 }
@@ -73,7 +75,7 @@ function navigate(delta){if(state.view==='month'){state.date=new Date(state.date
 function toggleAllDay(){for(const el of $$('.time-field'))el.classList.toggle('hidden',$('#allDay').checked);$('#eventTime').required=$('#eventEnd').required=!$('#allDay').checked;}
 function openEvent(e=null,day=dateKey(state.date),time='10:00'){
  if(state.loading||state.mutating)return toast('Wait for the current calendar operation to finish.');
- state.editing=e;$('#eventForm').reset();$('#eventError').textContent='';
+ state.editing=e;$('#eventForm').reset();$('#eventMore').open=!!e;$('#eventError').textContent='';
  const writable=state.calendars.filter(c=>['owner','writer'].includes(c.accessRole)),c=e?calendarFor(e):writable.find(x=>x.primary)||writable[0];
  if(!c)return toast('No writable calendar is available.');
  const readOnly=!!e&&(!['owner','writer'].includes(c.accessRole)||e.eventType&&e.eventType!=='default');
@@ -106,31 +108,29 @@ const e=state.editing;if(!e)return;
  try{deferDelete({type:'event',item:e,before:e,account:state.connected?state.account:'device'});$('#eventDialog').close();render();}catch(error){$('#eventError').textContent=error.message;}
 }
 function theme(){const dark=settings.theme==='dark'||settings.theme==='system'&&matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=dark?'dark':'light';$('#themeSelect').value=settings.theme;write('hearth-settings',settings);}
-function openSettings(){$('#defaultView').value=settings.view;$('#accountStatus').textContent=state.connected?'Google Calendar is connected in this browser.':state.configured?'Sign in with Google to load your calendars.':'Google connection needs deployment configuration.';$('#signInBtn').textContent=state.connected?'Switch Google account':'Connect Google';$('#disconnectBtn').classList.toggle('hidden',!state.connected);$('#storageExplanation').textContent=state.shared?'Tasks and groceries are saved to your household and refresh every 15 seconds.':'Tasks and groceries currently save on this device. Shared storage requires the Supabase household configuration described in the project README.';$('#timezoneLabel').textContent=zone;$('#settingsDialog').showModal();}
-function restoreDeviceHome(){state.home=read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]});for(const kind of ['tasks','groceries','pantry','meals'])state.home[kind]=(state.home[kind]||[]).map(item=>({...item,id:item.id||crypto.randomUUID(),kind}));}
-async function loadHome(){try{const result=await api('/api/household');const wasShared=state.shared;state.shared=result.shared;if(result.shared){state.home=Object.fromEntries(['tasks','groceries','pantry','meals'].map(kind=>[kind,result.items.filter(x=>x.kind===kind)]));if(result.members)state.members=result.members;state.lastHomeSync=Date.now();cacheAccount();}else if(wasShared){restoreDeviceHome();}}catch(e){state.lastError=e.message;if(e.status===401||e.status===403){state.shared=false;restoreDeviceHome();}else if(state.shared)toast('Household refresh failed: '+e.message);}state.homeReady=true;renderHome();}
-function homeItems(kind){let items=[...(state.home[kind]||[])];for(const op of outbox.forAccount(state.shared?state.account:'device').filter(o=>o.type==='home'&&o.item.kind===kind)){items=items.filter(x=>x.id!==op.item.id);if(op.action!=='delete')items.push({...op.item,pending:true});}return items;}
-function renderHome(){
- $('#homeStatus').textContent=state.shared?'Shared household'+(outbox.forAccount(state.account).length?' · pending changes':' · synced'):'Saved on this device';
- for(const [kind,target] of [['tasks','#taskList'],['groceries','#groceryList'],['pantry','#pantryList']]){
-  let list=homeItems(kind);if(kind==='tasks'){const mode=$('#taskFilter').value;list=list.filter(item=>mode==='all'||mode==='done'&&item.done||mode==='mine'&&!item.done&&item.assignedTo===state.account||mode==='upcoming'&&!item.done);list.sort((a,b)=>Number(a.done)-Number(b.done)||(a.due||'9999').localeCompare(b.due||'9999')||({'high':0,'normal':1,'low':2}[a.priority||'normal']-{'high':0,'normal':1,'low':2}[b.priority||'normal']));}
-  $(target).innerHTML=list.map(item=>`<div class="list-row ${item.done?'done':''} ${!item.done&&item.due<dateKey(new Date())?'overdue':''}"><input type="checkbox" aria-label="Complete ${esc(item.name)}" data-check="${esc(item.id)}" data-kind="${kind}" ${item.done?'checked':''}><span class="item-copy">${item.pending?'◷ ':''}${esc(item.name)}<small>${esc([item.due,item.amount?item.amount+' '+item.unit:item.quantity,item.assignedTo?'Assigned: '+person(item.assignedTo):'',item.priority==='high'?'High priority':'',item.repeat&&item.repeat!=='none'?'↻ '+item.repeat:''].filter(Boolean).join(' · '))}</small><small>${esc(item.completedBy?'Completed by '+person(item.completedBy):item.createdBy?'Added by '+person(item.createdBy):'')}</small></span>${kind==='groceries'?`<button class="icon" data-stock="${esc(item.id)}" aria-label="Move ${esc(item.name)} to pantry">⇥</button>`:''}<button class="icon" data-edit-item="${esc(item.id)}" data-kind="${kind}" aria-label="Edit ${esc(item.name)}">✎</button><button class="icon" data-delete-item="${esc(item.id)}" data-kind="${kind}" aria-label="Delete ${esc(item.name)}">×</button></div>`).join('')||'<p class="muted">Your list is clear.</p>';
- }
-  $('#recipeList').innerHTML=matches([...homeItems('pantry'),...homeItems('groceries')],allRecipes()).slice(0,16).map(r=>`<button class="recipe-button" data-recipe="${r.id}"><strong>${esc(r.name)}${r.custom?' <span class="custom-badge">Custom</span>':''}</strong><small>${r.minutes} min · ${r.ingredients.length-r.missing.length}/${r.ingredients.length} ingredients listed</small></button>`).join('')||'<p class="muted">No recipes found.</p>';
-  renderMealWeek();renderDashboard();renderSyncDetails();
+function openSettings(){$('#defaultView').value=settings.view;$('#accountStatus').textContent=state.connected?'Google Calendar is connected in this browser.':state.configured?'Sign in with Google to load your calendars.':'Google connection needs deployment configuration.';$('#signInBtn').textContent=state.connected?'Switch Google account':'Connect Google';$('#disconnectBtn').classList.toggle('hidden',!state.connected);$('#storageExplanation').textContent=state.shared?'Recipes, meals, tasks, pantry, and shopping are shared with your household and refresh while a household screen is open.':'Household lists and recipes currently save on this device. Connect a configured household to share them across devices.';$('#timezoneLabel').textContent=zone;$('#settingsDialog').showModal();}
+function restoreDeviceHome(){state.home=read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]});for(const kind of kinds)state.home[kind]=(state.home[kind]||[]).map(item=>({...item,id:item.id||crypto.randomUUID(),kind}));}
+async function loadHome(){
+ const account=state.account,generation=state.homeGeneration||0;
+ try{const result=await api('/api/household');if(state.account!==account||generation!==(state.homeGeneration||0)||state.flushing)return;
+ const wasShared=state.shared;state.shared=result.shared;
+ if(result.shared){state.home=Object.fromEntries(kinds.map(kind=>[kind,result.items.filter(x=>x.kind===kind)]));if(result.members)state.members=result.members;state.lastHomeSync=Date.now();state.lastError='';cacheAccount();await householdUI.migrateShared();}else if(wasShared)restoreDeviceHome();
+ }catch(e){if(state.account!==account)return;state.lastError=e.message;if(e.status===401||e.status===403){state.shared=false;restoreDeviceHome();}else if(state.shared)toast('Household refresh failed: '+e.message);}
+ state.homeReady=true;renderHome();
 }
+function homeItems(kind){let home=state.home;for(const op of outbox.forAccount(state.shared?state.account:'device')){if(op.status==='failed')break;if(op.type==='batch')home=applyChanges(home,op.changes.map(c=>({...c,item:{...c.item,pending:true}})));if(op.type==='home')home=applyChanges(home,[{item:{...op.item,pending:true},remove:op.action==='delete'}]);}return home[kind]||[];}
+function renderHome(){householdUI.render();}
 async function homeChange(kind,item,remove=false){
- item={...item,kind};const old=homeItems(kind).find(x=>x.id===item.id);
+ state.homeGeneration=(state.homeGeneration||0)+1;const homeAccount=state.account;item={...item,kind};const old=homeItems(kind).find(x=>x.id===item.id);
  if(remove){deferDelete({type:'home',item,before:old||item,account:state.shared?state.account:'device',shared:state.shared});renderHome();return;}
  const actor=state.shared?state.account:'device';
  item={...item,createdBy:old?.createdBy||actor,updatedBy:actor,completedBy:item.done?(old?.completedBy||actor):null};
  try{
-  if(state.shared){try{if(!navigator.onLine)throw new TypeError('Offline');const result=await post('/api/household',{...item,account:state.account});item=result.items?.[0]||item;}catch(e){if(e.status&&e.status<500)throw e;enqueue({type:'home',action:'upsert',item,before:old,account:state.account,shared:true});renderHome();return;}}
-  state.home[kind]=(state.home[kind]||[]).filter(x=>x.id!==item.id);state.home[kind].push(item);
-  if(!state.shared)write('hearth-home',state.home);else cacheAccount();renderHome();
+  if(state.shared){try{if(!navigator.onLine||outbox.forAccount(homeAccount).some(o=>o.type!=='event'))throw new TypeError('Offline');const result=await post('/api/household',{...item,account:state.account});if(state.account!==homeAccount)return;item=result.items?.[0]||item;rebasePending(result.items||[]);}catch(e){if(e.status&&e.status<500)throw e;enqueue({type:'home',action:'upsert',item,before:old,account:homeAccount,shared:true});renderHome();return;}}
+  const next=applyChanges(state.home,[{item}]);if(!state.shared)localStorage.setItem('hearth-home',JSON.stringify(next));state.home=next;
+  if(state.shared)cacheAccount();renderHome();
  }catch(e){state.lastError=e.message;toast('List change could not be saved: '+e.message);renderHome();throw e;}
 }
-for(const [form,kind] of [['#taskForm','tasks'],['#groceryForm','groceries']])$(form).onsubmit=async e=>{e.preventDefault();const fields=new FormData(e.target),name=fields.get('name').trim();if(!name)return;const button=e.target.querySelector('button');button.disabled=true;try{await homeChange(kind,{id:crypto.randomUUID(),kind,name,done:false,due:fields.get('due')||'',quantity:fields.get('quantity')||''});e.target.reset();}catch{}finally{button.disabled=false;}};
 for(const [button,kind] of [['#clearTasks','tasks'],['#clearGroceries','groceries']])$(button).onclick=async()=>{const completed=state.home[kind].filter(x=>x.done);if(!completed.length)return toast('No completed items to clear.');if(!confirm('Remove '+completed.length+' completed items?'))return;$(button).disabled=true;try{for(const item of completed)await homeChange(kind,item,true);}catch{}finally{$(button).disabled=false;}};
 $('#mealForm').onsubmit=e=>{e.preventDefault();const groups=mealGroups($('#mealInput').value);$('#mealResult').innerHTML=groups.map(g=>`<div>${g.found.length?'✓':'○'} ${esc(g.name)}: ${g.found.length?esc(g.found.join(', ')):'not recognized'}</div>`).join('')+'<p class="muted">Missing recognition is not proof an ingredient is absent. Use this as a planning checklist; adjust portions to your needs.</p>';};
 $('#shareForm').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('.primary');button.disabled=true;try{await post('/api/google/share',{calendar:shareCalendar.id,email:$('#shareEmail').value,role:$('#shareRole').value});$('#shareDialog').close();toast('Google Calendar sharing updated');}catch(e){$('#shareError').textContent=e.message;}finally{button.disabled=false;}};
@@ -139,8 +139,8 @@ document.addEventListener('click',async e=>{
  if(b?.dataset.event){if(state.suppressClick){state.suppressClick=false;return;}openEvent(displayEvents().find(x=>x.id===b.dataset.event));return;}
  if(b?.dataset.day){state.date=parseDay(b.dataset.day);state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();return;}
  if(b?.dataset.share){shareCalendar=state.calendars.find(c=>c.id===b.dataset.share);$('#shareName').textContent=shareCalendar.name;$('#shareEmail').value=state.partner||settings.spouse||'';$('#shareRole').value='reader';$('#shareError').textContent='';$('#shareDialog').showModal();loadSharing();return;}
- if(b?.dataset.recipe){openRecipe(Number(b.dataset.recipe));return;}
- if(b?.dataset.deleteItem||b?.dataset.editItem){const kind=b.dataset.kind,item=homeItems(kind).find(x=>x.id===(b.dataset.deleteItem||b.dataset.editItem));if(!item)return;if(b.dataset.deleteItem){try{await homeChange(kind,item,true);}catch{}}else{editingItem={...item,kind};$('#itemName').value=item.name;$('#itemDue').value=item.due||'';$('#itemQuantity').value=item.quantity||'';$('#taskFields').classList.toggle('hidden',kind!=='tasks');$('#inventoryFields').classList.toggle('hidden',!['pantry','groceries'].includes(kind));$('#itemAssignee').innerHTML='<option value="">Anyone</option>'+[...new Set([state.account,...state.members,settings.spouse].filter(Boolean))].map(email=>`<option value="${esc(email)}">${esc(person(email))}</option>`).join('');$('#itemAssignee').value=item.assignedTo||'';$('#itemPriority').value=item.priority||'normal';$('#itemRepeat').value=item.repeat||'none';$('#itemAmount').value=item.amount||'';$('#itemUnit').value=item.unit||'each';$('#itemError').textContent='';$('#itemDialog').showModal();}return;}
+ if(b?.dataset.recipe){openRecipe(b.dataset.recipe);return;}
+ if(b?.dataset.deleteItem||b?.dataset.editItem){const kind=b.dataset.kind,item=homeItems(kind).find(x=>x.id===(b.dataset.deleteItem||b.dataset.editItem));if(!item)return;if(b.dataset.deleteItem){try{await homeChange(kind,item,true);}catch{}}else{editingItem={...item,kind};$('#itemName').value=item.name;$('#itemDue').value=item.due||'';$('#itemQuantity').value=item.quantity||'';$('#taskFields').classList.toggle('hidden',kind!=='tasks');$('#inventoryFields').classList.toggle('hidden',!['pantry','groceries'].includes(kind));$('#itemAssignee').innerHTML='<option value="">Anyone</option>'+[...new Set([state.account,...state.members,settings.spouse].filter(Boolean))].map(email=>`<option value="${esc(email)}">${esc(person(email))}</option>`).join('');$('#itemAssignee').value=item.assignedTo||'';$('#itemPriority').value=item.priority||'normal';$('#itemRepeat').value=item.repeat||'none';$('#itemAmount').value=item.amount||'';$('#itemUnit').value=item.unit||'each';householdUI.prepareItem(item);$('#itemError').textContent='';$('#itemDialog').showModal();}return;}
  const day=e.target.closest('[data-new-day]');if(day){openEvent(null,day.dataset.newDay);return;}
  const timeline=e.target.closest('[data-time-day]');if(timeline){const min=Math.max(0,Math.min(1425,Math.floor((e.clientY-timeline.getBoundingClientRect().top)/15)*15));openEvent(null,timeline.dataset.timeDay,String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0'));}
 });
@@ -156,12 +156,11 @@ $('#themeBtn').onclick=()=>{settings.theme=document.documentElement.dataset.them
 $('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);};
 $('#settingsBtn').onclick=$('#accountBtn').onclick=openSettings;
 $('#menuBtn').onclick=()=>document.body.classList.toggle(matchMedia('(max-width:700px)').matches?'sidebar-open':'sidebar-closed');
-$$('[data-app]').forEach(b=>b.onclick=()=>{state.app=b.dataset.app;$$('[data-app]').forEach(x=>x.classList.toggle('active',x===b));$('#homeWorkspace').classList.toggle('hidden',state.app!=='home');$('#calendarWorkspace').classList.toggle('hidden',state.app!=='calendar');$('#sidebar').classList.toggle('hidden',state.app!=='calendar');$('#menuBtn').classList.toggle('hidden',state.app==='home');if(state.app==='home'){loadHome();renderDashboard();}sync();});
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea,select,dialog')||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key.toLowerCase()==='t')$('#todayBtn').click();if(e.key.toLowerCase()==='c')openEvent();});
 setInterval(()=>{if(!document.hidden&&state.connected&&!state.loading&&!state.mutating&&!$('dialog[open]'))sync();},60000);
-setInterval(()=>{if(!document.hidden&&state.app==='home'&&state.shared)loadHome();},15000);
-$('#itemForm').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('.primary');button.disabled=true;try{const item={...editingItem,name:$('#itemName').value.trim(),due:$('#itemDue').value,quantity:$('#itemQuantity').value,assignedTo:$('#itemAssignee').value,priority:$('#itemPriority').value,repeat:$('#itemRepeat').value,amount:Number($('#itemAmount').value)||0,unit:$('#itemUnit').value};if(item.kind==='tasks'&&item.repeat!=='none'&&!item.due)throw Error('Add a due date for a recurring chore.');await homeChange(item.kind,item);$('#itemDialog').close();}catch(error){$('#itemError').textContent=error.message;}finally{button.disabled=false;}};
-theme();render();if(['day','week'].includes(state.view))$('#calendarContent').scrollTop=420;renderHome();initConnection();
+setInterval(()=>{if(!document.hidden&&state.app!=='calendar'&&state.shared)loadHome();},15000);
+$('#itemForm').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('.primary');button.disabled=true;try{const item={...editingItem,name:$('#itemName').value.trim(),due:$('#itemDue').value,quantity:$('#itemQuantity').value,assignedTo:$('#itemAssignee').value,priority:$('#itemPriority').value,repeat:$('#itemRepeat').value,amount:Number($('#itemAmount').value)||0,unit:$('#itemUnit').value,...householdUI.itemFields()};if(item.kind==='tasks'&&item.repeat!=='none'&&!item.due)throw Error('Add a due date for a recurring chore.');if(item.kind==='tasks'&&item.due!==editingItem.due)item.scheduledDue=editingItem.scheduledDue||editingItem.due;if(item.repeat!==editingItem.repeat){item.scheduledDue=item.due;item.seriesAnchor=item.due;}await homeChange(item.kind,item);$('#itemDialog').close();}catch(error){$('#itemError').textContent=error.message;}finally{button.disabled=false;}};
+
 const oauthResult=new URLSearchParams(location.search).get('sync');if(oauthResult){history.replaceState({},'',location.pathname);if(oauthResult!=='connected')toast('Google connection: '+oauthResult.replaceAll('-',' '));}
 // Planning, account-bound offline writes, and delayed deletion.
 function person(email){return email==='device'?'Me (this device)':email===state.account?'Me':email===state.partner?'Spouse':email;}
@@ -180,20 +179,22 @@ async function persistEvent(item,before){
  catch(e){if(e.status&&e.status<500&&e.status!==429)throw e;enqueue({type:'event',action:'upsert',item:data,before,account:state.account});toast('Saved offline · waiting to sync');render();}
 }
 function deferDelete(op){const row=enqueue({...op,action:'delete',notBefore:Date.now()+10000});$('#undoBar span').textContent='Removed “'+(op.item.title||op.item.name)+'” · undo before it syncs';$('#undoBar').classList.remove('hidden');$('#undoDelete').dataset.id=row.id;setTimeout(()=>{flushQueue();renderSyncDetails();},10100);}
+function rebasePending(items){let changed=false;for(const op of outbox.forAccount(state.account).filter(o=>o.type==='batch')){for(const expected of op.expected){const saved=items.find(i=>i.id===expected.id);if(saved){expected.updated_at=saved.updated_at;changed=true;}}}if(changed)outbox.persist();}
 async function flushQueue(){
  if(state.flushing||state.mutating)return;state.flushing=true;
  try{
-  await outbox.flush('device',async op=>{if(op.type==='event'){applyLocalEvent(op.item,op.action==='delete');}else{state.home[op.item.kind]=(state.home[op.item.kind]||[]).filter(x=>x.id!==op.item.id);if(op.action!=='delete')state.home[op.item.kind].push(op.item);write('hearth-home',state.home);}},()=>{render();renderHome();});
+  await outbox.flush('device',async op=>{if(op.type==='event'){applyLocalEvent(op.item,op.action==='delete');}else{const next=applyChanges(read('hearth-home',{}),[{item:op.item,remove:op.action==='delete'}]);localStorage.setItem('hearth-home',JSON.stringify(next));if(!state.shared)state.home=next;}},()=>{render();renderHome();});
   if(!navigator.onLine||!state.connected)return;
   if(!outbox.forAccount(state.account).length)return;
   const identity=await api('/api/google/status');if(!identity.connected||identity.account&&identity.account!==state.account){state.lastError='Reconnect the account that owns these pending changes.';return;}state.verified=true;
   await outbox.flush(state.account,async op=>{
+   if(op.type==='batch')return post('/api/household/batch',{operationId:op.id,account:op.account,changes:op.changes,expected:op.expected});
    if(op.type==='event'){if(op.action==='delete')return post('/api/google/events/'+encodeURIComponent(op.item.googleEventId)+'?calendar='+encodeURIComponent(op.item.googleCalendarId),{etag:op.item.etag,account:op.account},'DELETE');return post('/api/google/events',{...op.item,account:op.account});}
    return post('/api/household',{...op.item,account:op.account},op.action==='delete'?'DELETE':'POST');
   },async(op,result)=>{
    if(op.type==='event'){state.events=state.events.filter(e=>e.id!==op.item.id&&e.id!==op.before?.id);if(result?.event)state.events.push(normalizeEvent(result.event));}
-   else{state.home[op.item.kind]=(state.home[op.item.kind]||[]).filter(x=>x.id!==op.item.id);if(op.action!=='delete')state.home[op.item.kind].push(result?.items?.[0]||op.item);}
-   cacheAccount();render();renderHome();
+   else if(op.type==='batch'){const actual=op.changes.map(c=>({...c,item:result?.items?.find(i=>i.id===c.item.id)||c.item}));state.home=applyChanges(state.home,actual);}else{state.home[op.item.kind]=(state.home[op.item.kind]||[]).filter(x=>x.id!==op.item.id);if(op.action!=='delete')state.home[op.item.kind].push(result?.items?.[0]||op.item);}
+   rebasePending(result?.items||[]);cacheAccount();render();renderHome();
   });
  }catch(e){state.lastError=e.message;}finally{state.flushing=false;renderSyncDetails();}
 }
@@ -204,39 +205,12 @@ function renderSyncDetails(){
  const undo=outbox.rows.find(o=>o.id===$('#undoDelete').dataset.id);$('#undoBar').classList.toggle('hidden',!undo||undo.status==='sending');
  if($('#syncDetailsButton'))$('#syncDetailsButton').textContent='Sync details'+(relevant.length?' ('+relevant.length+' pending)':'');
 }
-function renderDashboard(){if(state.app!=='home')return;
- if(!$('#dashboard'))return;const today=dateKey(new Date()),now=new Date(),todayEvents=events().filter(e=>occursOn(e,today)),tasks=homeItems('tasks').filter(i=>!i.done&&(i.due||today)<=dateKey(addDays(now,7))).sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999')),dinner=homeItems('meals').filter(m=>m.due===today),groceries=homeItems('groceries').filter(i=>!i.done);
- $('#dashboard').innerHTML=`<article class="card"><h2>Today</h2><p class="muted">${esc(now.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}))}</p>${todayEvents.slice(0,5).map(chip).join('')||'<p class="muted">No events on your visible calendars.</p>'}</article><article class="card"><h2>Coming up</h2>${tasks.slice(0,4).map(t=>`<p class="${t.due&&t.due<today?'error':''}">${esc(t.name)}<small class="muted"> · ${esc(t.due||'No due date')}</small></p>`).join('')||'<p class="muted">No tasks due this week.</p>'}</article><article class="card"><h2>Tonight & shopping</h2>${dinner.map(m=>`<p>${esc(m.name)} · ${m.servings||2} servings</p>`).join('')||'<p class="muted">Pick dinner in the meal planner below.</p>'}<p>${groceries.length} grocery items to pick up</p></article>`;
-}
-function renderMealWeek(){
- const first=state.mealWeek;$('#mealWeekTitle').textContent=shortDate(first)+' – '+shortDate(addDays(first,6));
- $('#mealWeekGrid').innerHTML=Array.from({length:7},(_,i)=>{const d=addDays(first,i),key=dateKey(d);return `<div class="meal-day"><strong>${esc(d.toLocaleDateString(undefined,{weekday:'short',day:'numeric'}))}</strong>${homeItems('meals').filter(m=>m.due===key).map(m=>`<div><button class="text-button" data-planned-meal="${m.id}">${esc(m.name)}</button><small>${m.servings||2} servings</small><button class="icon" data-delete-item="${m.id}" data-kind="meals" aria-label="Remove meal">×</button></div>`).join('')}<button class="button" data-plan-day="${key}">+ Plan</button></div>`;}).join('');
-}
-function openRecipe(id,day=dateKey(new Date()),meal=null){
- const list=allRecipes();let r=list[id];
- if(!r&&meal?.name){const idx=list.findIndex(x=>x.name===meal.name);if(idx!==-1){id=idx;r=list[idx];}}
- if(!r)return toast('Recipe not found.');
- activeRecipe=id;state.editMeal=meal;$('#recipeTitle').textContent=r.name;$('#recipeServings').value=meal?.servings||r.servings;$('#recipeDate').value=day;renderRecipe();$('#recipeDialog').showModal();
-}
-function renderRecipe(){
- const list=allRecipes(),r=list[activeRecipe];if(!r)return;
- const servings=Math.max(1,Math.min(20,Number($('#recipeServings').value)||r.servings));
- $('#recipeDetails').innerHTML='<h3>Ingredients for '+servings+'</h3><ul>'+r.portions.map(i=>'<li>'+Math.round(i.amount*servings/r.servings*100)/100+' '+esc(i.unit+' '+i.name)+'</li>').join('')+'</ul><h3>Method</h3><p class="muted">Method quantities describe the original '+r.servings+' servings; use the scaled ingredient list above. Cooking time may change with pan size.</p><ol>'+r.steps.map(s=>'<li>'+esc(s)+'</li>').join('')+'</ol>';
- $('#deleteRecipeBtn').classList.toggle('hidden',!r.custom);
- $('#editRecipeBtn').classList.toggle('hidden',!r.custom);
-}
-async function addShoppingFor(meals){
- const needs=shoppingNeeds(meals,allRecipes(),homeItems('pantry'),homeItems('groceries'));
- for(const need of needs){const existing=homeItems('groceries').find(g=>normalizedFood(g.name)===normalizedFood(need.name)&&g.unit===need.unit);await homeChange('groceries',{...(existing||{}),id:existing?.id||crypto.randomUUID(),name:need.name,amount:(Number(existing?.amount)||0)+need.amount,unit:need.unit,quantity:'',done:false});}
- toast(needs.length?'Shopping list updated with '+needs.length+' ingredients':'All quantified ingredients are already covered');
-}
-async function completeItem(kind,item,done){
- if(!item)return;
- let next=null;
- if(kind==='tasks'&&done&&!item.done&&item.repeat&&item.repeat!=='none'&&item.due){const due=nextDue(item.due,item.repeat);const id=item.nextId||await stableUUID(item.id+'|'+due);next={...item,id,due,done:false,nextId:null,completedBy:null,completedAt:null,createdBy:null};item={...item,nextId:id};}
- await homeChange(kind,{...item,done});
- if(next&&!homeItems('tasks').some(t=>t.id===next.id)){await homeChange('tasks',next);toast('Completed · next chore is due '+next.due);}
-}
+function renderDashboard(){householdUI.dashboard();}
+function renderMealWeek(){householdUI.renderWeek();}
+function openRecipe(...args){householdUI.openRecipe(...args);}
+function renderRecipe(){householdUI.renderRecipe();}
+async function addShoppingFor(...args){return householdUI.shopping(...args);}
+async function completeItem(...args){return householdUI.complete(...args);}
 function decorateTimedEvents(){for(const el of $$('.timed-event')){const event=displayEvents().find(e=>e.id===el.dataset.event);if(event&&!event.pending&&['owner','writer'].includes(calendarFor(event).accessRole)&&(!event.eventType||event.eventType==='default')){el.classList.add('draggable-event');el.insertAdjacentHTML('beforeend','<span class="resize-handle" title="Drag to change end time" aria-hidden="true"></span>');}}}
 
 // Sync inspection and a ten-second undo window for deletion.
@@ -245,43 +219,30 @@ $('#settingsDialog').insertAdjacentHTML('beforeend','<label>Spouse Google email<
 $('#spouseSetting').value=settings.spouse||state.partner||'';
 $('#spouseSetting').onchange=e=>{if(e.target.validity.valid){settings.spouse=e.target.value.trim().toLowerCase();write('hearth-settings',settings);}};
 $('#syncDetailsButton').onclick=()=>{renderSyncDetails();$('#syncDialog').showModal();};
-$('#retryQueue').onclick=async()=>{for(const op of outbox.rows.filter(o=>[state.account,'device'].includes(o.account))){if(op.status==='failed'&&op.error?.includes('changed in Google'))continue;op.status='pending';op.error='';}outbox.persist();await flushQueue();};
+$('#retryQueue').onclick=async()=>{for(const op of outbox.rows.filter(o=>[state.account,'device'].includes(o.account))){if(op.status==='failed'&&(op.type==='batch'||op.error?.includes('changed in Google')))continue;op.status='pending';op.error='';}outbox.persist();await flushQueue();};
 $('#refreshAll').onclick=async()=>{await sync();await loadHome();renderSyncDetails();};
 $('#undoDelete').onclick=()=>undoOperation($('#undoDelete').dataset.id);
 function undoOperation(id){const op=outbox.rows.find(x=>x.id===id);if(!op||op.status==='sending')return toast('This change is already being sent.');outbox.remove(id);render();renderHome();toast(op.action==='delete'?'Deletion undone':'Pending change discarded');}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;
  if(b.dataset.discard){undoOperation(b.dataset.discard);return;}
- if(b.dataset.planDay){state.planDay=b.dataset.planDay;openRecipe(0,state.planDay);return;}
+ if(b.dataset.planDay){state.planDay=b.dataset.planDay;householdUI.openPicker(state.planDay);return;}
   if(b.dataset.plannedMeal){
    const meal=homeItems('meals').find(m=>m.id===b.dataset.plannedMeal);
    if(meal){
-    const list=allRecipes();let idx=Number(meal.recipeId);
-    if(!list[idx]||list[idx].name!==meal.name){const found=list.findIndex(x=>x.name===meal.name);if(found!==-1)idx=found;}
-    openRecipe(idx,meal.due,meal);
+    householdUI.openMeal(meal);
    }
    return;
   }
-  if(b.dataset.stock){const item=homeItems('groceries').find(g=>g.id===b.dataset.stock);try{await homeChange('pantry',{...item,id:await stableUUID('stock|'+item.id),kind:'pantry',done:false});await homeChange('groceries',item,true);}catch{}return;}
+  if(b.dataset.stock){householdUI.transfer([homeItems('groceries').find(g=>g.id===b.dataset.stock)]);return;}
   if(b.dataset.revoke){if(!confirm('Remove access for '+b.dataset.revoke+'?'))return;try{await post('/api/google/share',{calendar:shareCalendar.id,email:b.dataset.revoke,role:'none'});await loadSharing();}catch(error){$('#shareError').textContent=error.message;}}
  });
 $('#spouseShare').onchange=async e=>{const email=state.partner||settings.spouse;if(!email)return;e.target.disabled=true;try{await post('/api/google/share',{calendar:shareCalendar.id,email,role:e.target.checked?'reader':'none'});await loadSharing();}catch(error){e.target.checked=!e.target.checked;$('#shareError').textContent=error.message;e.target.disabled=false;}};
-$('#taskFilter').onchange=renderHome;
-$('#recipeServings').oninput=renderRecipe;
-$('#planRecipe').onclick=async()=>{
- const due=$('#recipeDate').value;if(!due)return toast('Choose a meal date.');
- const servings=Number($('#recipeServings').value);if(!Number.isFinite(servings)||servings<1||servings>20)return toast('Choose 1–20 servings.');
- const r=allRecipes()[activeRecipe];if(!r)return toast('Recipe not found.');
- $('#planRecipe').disabled=true;try{await homeChange('meals',{...state.editMeal,id:state.editMeal?.id||crypto.randomUUID(),kind:'meals',name:r.name,recipeId:activeRecipe,servings,due,done:false});$('#recipeDialog').close();toast('Meal planned');}catch{}finally{$('#planRecipe').disabled=false;}
-};
-$('#addIngredients').onclick=async()=>{$('#addIngredients').disabled=true;try{await addShoppingFor([{recipeId:activeRecipe,servings:Number($('#recipeServings').value)||2}]);$('#recipeDialog').close();}catch(e){toast(e.message);}finally{$('#addIngredients').disabled=false;}};
-$('#buildShopping').onclick=async()=>{$('#buildShopping').disabled=true;try{const from=dateKey(state.mealWeek),to=dateKey(addDays(state.mealWeek,7));await addShoppingFor(homeItems('meals').filter(m=>m.due>=from&&m.due<to));}catch(e){toast(e.message);}finally{$('#buildShopping').disabled=false;}};
 $('#mealWeekPrev').onclick=()=>{state.mealWeek=addDays(state.mealWeek,-7);renderMealWeek();};$('#mealWeekNext').onclick=()=>{state.mealWeek=addDays(state.mealWeek,7);renderMealWeek();};
-$('#pantryForm').onsubmit=async e=>{e.preventDefault();const data=new FormData(e.target);const button=e.target.querySelector('button');button.disabled=true;try{await homeChange('pantry',{id:crypto.randomUUID(),name:data.get('name').trim(),amount:Number(data.get('amount'))||0,unit:data.get('unit'),done:false});e.target.reset();}catch{}finally{button.disabled=false;}};
 
 let editingCustomRecipeId=null;
 function addIngredientRow(amount='',unit='each',name=''){
  const div=document.createElement('div');div.className='ingredient-row';
- div.innerHTML=`<input type="number" class="ing-amount" min="0.01" max="10000" step="any" placeholder="Amt" value="${esc(String(amount))}" required><select class="ing-unit">${['each','cup','tbsp','tsp','g','oz','can','clove','fillet','pinch'].map(u=>`<option value="${u}" ${u===unit?'selected':''}>${u}</option>`).join('')}</select><input type="text" class="ing-name" placeholder="Ingredient (e.g. olive oil)" maxlength="100" value="${esc(name)}" required><button type="button" class="icon remove-ing-btn" aria-label="Remove ingredient">×</button>`;
+ div.innerHTML=`<input type="number" class="ing-amount" aria-label="Ingredient amount" min="0.01" max="10000" step="any" placeholder="Amt" value="${esc(String(amount))}" required><select class="ing-unit" aria-label="Ingredient unit">${['each','cup','tbsp','tsp','g','oz','can','clove','fillet','pinch'].map(u=>`<option value="${u}" ${u===unit?'selected':''}>${u}</option>`).join('')}</select><input type="text" class="ing-name" aria-label="Ingredient name" placeholder="Ingredient (e.g. olive oil)" maxlength="100" value="${esc(name)}" required><button type="button" class="icon remove-ing-btn" aria-label="Remove ingredient">×</button>`;
  div.querySelector('.remove-ing-btn').onclick=()=>{
   if($('#customRecipeIngredientsList').children.length>1)div.remove();
   else toast('A recipe needs at least one ingredient.');
@@ -307,7 +268,7 @@ function openCustomRecipeModal(recipe=null){
 }
 $('#addRecipeBtn').onclick=()=>openCustomRecipeModal();
 $('#addIngredientRowBtn').onclick=()=>addIngredientRow(1,'each','');
-$('#customRecipeForm').onsubmit=e=>{
+$('#customRecipeForm').onsubmit=async e=>{
  e.preventDefault();$('#customRecipeError').textContent='';
  const portions=[];
  for(const row of $$('#customRecipeIngredientsList .ingredient-row')){
@@ -318,42 +279,21 @@ $('#customRecipeForm').onsubmit=e=>{
  }
  try{
   const recipeData={
-   id:editingCustomRecipeId||undefined,
+   id:editingCustomRecipeId||crypto.randomUUID(),
    name:$('#customRecipeName').value.trim(),
    minutes:$('#customRecipeMinutes').value,
    servings:$('#customRecipeServings').value,
    portions,
    steps:$('#customRecipeSteps').value
   };
-  const normalized=normalizeCustomRecipe(recipeData);
-  if(editingCustomRecipeId){
-   state.customRecipes=state.customRecipes.map(r=>r.id===editingCustomRecipeId?normalized:r);
-  } else {
-   state.customRecipes.push(normalized);
-  }
-  write('hearth-custom-recipes',state.customRecipes);
+  const normalized=normalizeCustomRecipe(recipeData);$('#saveCustomRecipeBtn').disabled=true;
+  await homeChange('recipes',normalized);
   $('#customRecipeDialog').close();
   renderHome();
   toast(editingCustomRecipeId?'Recipe updated':'Recipe added');
  }catch(err){
   $('#customRecipeError').textContent=err.message;
- }
-};
-$('#deleteRecipeBtn').onclick=()=>{
- const list=allRecipes(),r=list[activeRecipe];
- if(!r||!r.custom)return;
- if(!confirm('Delete “'+r.name+'”?'))return;
- state.customRecipes=state.customRecipes.filter(x=>x.id!==r.id&&x.name!==r.name);
- write('hearth-custom-recipes',state.customRecipes);
- $('#recipeDialog').close();
- renderHome();
- toast('Recipe deleted');
-};
-$('#editRecipeBtn').onclick=()=>{
- const list=allRecipes(),r=list[activeRecipe];
- if(!r||!r.custom)return;
- $('#recipeDialog').close();
- openCustomRecipeModal(r);
+ }finally{$('#saveCustomRecipeBtn').disabled=false;}
 };
 // Drag uses the same minute/pixel coordinates as the grid, snapped to 15 minutes.
 document.addEventListener('pointerdown',e=>{
@@ -383,3 +323,7 @@ async function loadSharing(){
  try{const result=await api('/api/google/share?calendar='+encodeURIComponent(shareCalendar.id));state.sharingRules=result.rules;const spouse=state.partner||settings.spouse;$('#spouseShare').checked=result.rules.some(r=>r.email.toLowerCase()===spouse?.toLowerCase()&&r.role!=='none');$('#spouseShare').disabled=!spouse;$('#spouseStatus').textContent=spouse?'Spouse: '+spouse:'Set your spouse email in Settings to enable one-click sharing.';$('#sharingRules').innerHTML=result.rules.map(r=>`<p>${esc(r.email)} · ${esc(r.role)} <button class="text-button" data-revoke="${esc(r.email)}">Revoke</button></p>`).join('')||'<p class="muted">Not shared with anyone.</p>';}
  catch(e){$('#shareError').textContent=e.message;$('#spouseStatus').textContent='Sharing status unavailable';}
 }
+
+let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render});
+await householdUI.migrateLocal();
+householdUI.navigate(state.app,false);theme();render();renderHome();initConnection();
