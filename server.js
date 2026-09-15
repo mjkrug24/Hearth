@@ -12,8 +12,8 @@ const routes={
  '/api/google/share':'./api/google/share.js','/api/household':'./api/household.js','/api/household/batch':'./api/household/batch.js'
 };
 // Explicit public allowlist prevents .env, tokens, source APIs, and Git data being served.
-const publicFiles=['index.html','styles.css','warm.css','app.js','calendar-model.js','recipes.js','planning.js','offline.js','sw.js','household-ui.js','household-model.js','manifest.json','icon.svg','favicon.ico','icon-192.png','icon-512.png','icon-maskable.png','apple-touch-icon.png'];
-const securityHeaders={"Content-Security-Policy":"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY'};
+const publicFiles=['index.html','styles.css','warm.css','app.js','pocketbase.js','calendar-model.js','recipes.js','planning.js','offline.js','sw.js','household-ui.js','household-model.js','manifest.json','icon.svg','favicon.ico','icon-192.png','icon-512.png','icon-maskable.png','apple-touch-icon.png'];
+const securityHeaders={"Content-Security-Policy":"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http: https: ws: wss:; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY'};
 http.createServer(async(req,res)=>{
  res.status=code=>{res.statusCode=code;return res;};res.json=data=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));};res.redirect=url=>{res.statusCode=302;res.setHeader('Location',url);res.end();};
  for(const [name,value] of Object.entries(securityHeaders))res.setHeader(name,value);

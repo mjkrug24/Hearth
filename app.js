@@ -4,6 +4,7 @@ import {dateKey,parseDay,addDays,clock,escapeHTML as esc,safeColor,normalizeEven
 import {recipes,mealGroups,normalizeCustomRecipe} from './recipes.js';
 import {Outbox} from './offline.js';
 import {overlaps,shiftedEvent,expandLocal,mergePending} from './planning.js';
+import {pb} from './pocketbase.js';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}};
 const write=(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value));}catch{toast('Device storage is full or unavailable.');}};
@@ -42,6 +43,209 @@ function toast(message){$('#toast').textContent=message;$('#toast').classList.re
 async function api(url,options={}){const r=await fetch(url,{cache:'no-store',credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...options.headers}});const data=r.status===204?null:await r.json().catch(()=>({error:'The service returned an unexpected response.'}));if(!r.ok){const error=new Error(data?.error||'Request failed');error.status=r.status;throw error;}return data;}
 const post=(url,body,method='POST')=>api(url,{method,body:JSON.stringify(body)});
 function notice(message=''){$('#calendarNotice').textContent=message;$('#calendarNotice').classList.toggle('hidden',!message);}
+// PocketBase Cross-Device Sync
+let settingsSyncTimeout=null,receivingRemoteSettings=false;
+function syncSettingsToPocketBase(){
+ if(!pb.isAuthenticated()||receivingRemoteSettings)return;
+ clearTimeout(settingsSyncTimeout);
+ settingsSyncTimeout=setTimeout(async()=>{
+  try{
+   await pb.saveSettings({
+    theme:settings.theme,
+    view:settings.view,
+    destination:state.app,
+    spouse:settings.spouse||'',
+    calendarColors:read(calColorKey,{}),
+    hiddenCalendars:state.hidden||[],
+    favorites:read('hearth-favorites-'+state.account,read('hearth-favorites-device',[]))
+   });
+  }catch(err){console.warn('PocketBase settings sync error:',err.message);}
+ },300);
+}
+
+function applyPocketBaseSettings(data){
+ if(!data||typeof data!=='object')return;
+ receivingRemoteSettings=true;
+ try{
+  let changed=false;
+  if(data.theme&&data.theme!==settings.theme){settings.theme=data.theme;theme();changed=true;}
+  if(data.view&&data.view!==settings.view){settings.view=data.view;state.view=data.view;if($('#defaultView'))$('#defaultView').value=data.view;if($('#viewSelect'))$('#viewSelect').value=data.view;changed=true;}
+  if(data.destination&&data.destination!==state.app&&householdUI?.navigate){householdUI.navigate(data.destination,false);changed=true;}
+  if(data.spouse!==undefined&&data.spouse!==settings.spouse){settings.spouse=data.spouse;if($('#spouseSetting'))$('#spouseSetting').value=data.spouse;changed=true;}
+  if(data.calendarColors&&typeof data.calendarColors==='object'){write(calColorKey,data.calendarColors);applyLocalColor();state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));renderCalendars();changed=true;}
+  if(Array.isArray(data.hiddenCalendars)){state.hidden=data.hiddenCalendars;write('hearth-hidden-calendars',state.hidden);renderCalendars();changed=true;}
+  if(Array.isArray(data.favorites)){write('hearth-favorites-'+state.account,data.favorites);write('hearth-favorites-device',data.favorites);changed=true;}
+  if(changed){write('hearth-settings',settings);render();renderDashboard();}
+ }finally{
+  receivingRemoteSettings=false;
+ }
+}
+
+async function syncPocketBaseItem(item,remove=false){
+ if(!pb.isAuthenticated())return;
+ try{
+  const clientId=item.id;
+  if(remove){
+   if(item.pb_id){
+    await pb.delete('hearth_items',item.pb_id).catch(()=>{});
+   }else{
+    const records=await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]);
+    for(const r of records)await pb.delete('hearth_items',r.id).catch(()=>{});
+   }
+  }else{
+   const details={...(item.details||{})};
+   for(const k of ['amount','servings','unit','aisle','recipeId','recipeSnapshot','repeat','priority','expires','rotation','skipped','nextId','scheduledDue','seriesAnchor','custom','ingredients','portions','steps','minutes'])if(item[k]!==undefined)details[k]=item[k];
+   const record={client_id:clientId,kind:item.kind,name:item.name||'',done:!!item.done,due:item.due||'',quantity:item.quantity||'',details,assignedTo:item.assignedTo||'',user:pb.user()?.id||null};
+   if(item.pb_id){
+    await pb.update('hearth_items',item.pb_id,record).catch(async()=>{
+     const existing=(await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
+     if(existing){item.pb_id=existing.id;await pb.update('hearth_items',existing.id,record);}
+     else{const created=await pb.create('hearth_items',record);item.pb_id=created.id;}
+    });
+   }else{
+    const existing=(await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
+    if(existing){item.pb_id=existing.id;await pb.update('hearth_items',existing.id,record);}
+    else{const created=await pb.create('hearth_items',record);item.pb_id=created.id;}
+   }
+  }
+ }catch(err){console.warn('PocketBase item sync error:',err.message);}
+}
+
+async function syncPocketBaseBatch(changes){
+ if(!pb.isAuthenticated()||!Array.isArray(changes))return;
+ for(const c of changes)await syncPocketBaseItem(c.item,!!c.remove).catch(()=>{});
+}
+
+async function syncPocketBaseEvent(event,remove=false){
+ if(!pb.isAuthenticated()||event.googleCalendarId)return;
+ try{
+  const clientId=event.id;
+  if(remove){
+   if(event.pb_id){
+    await pb.delete('hearth_events',event.pb_id).catch(()=>{});
+   }else{
+    const records=await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]);
+    for(const r of records)await pb.delete('hearth_events',r.id).catch(()=>{});
+   }
+  }else{
+   const record={client_id:clientId,title:event.title||'',date:event.date||'',endDate:event.endDate||event.date||'',time:event.time||'',end:event.end||'',allDay:!!event.allDay,location:event.location||'',notes:event.notes||'',reminder:event.reminder||'',repeat:event.repeat||'none',repeatCount:Number(event.repeatCount)||0,timeZone:event.timeZone||'',user:pb.user()?.id||null};
+   if(event.pb_id){
+    await pb.update('hearth_events',event.pb_id,record).catch(async()=>{
+     const existing=(await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
+     if(existing){event.pb_id=existing.id;await pb.update('hearth_events',existing.id,record);}
+     else{const created=await pb.create('hearth_events',record);event.pb_id=created.id;}
+    });
+   }else{
+    const existing=(await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
+    if(existing){event.pb_id=existing.id;await pb.update('hearth_events',existing.id,record);}
+    else{const created=await pb.create('hearth_events',record);event.pb_id=created.id;}
+   }
+  }
+ }catch(err){console.warn('PocketBase event sync error:',err.message);}
+}
+
+async function loadPocketBaseData(){
+ if(!pb.isAuthenticated())return;
+ try{
+  const pbSettingsRec=await pb.fetchSettings().catch(()=>null);
+  if(pbSettingsRec?.settings)applyPocketBaseSettings(pbSettingsRec.settings);
+  const items=await pb.fetchItems().catch(()=>[]);
+  if(items.length>0){
+   const grouped=Object.fromEntries(kinds.map(k=>[k,[]]));
+   for(const r of items){
+    const item={id:r.client_id||r.id,pb_id:r.id,kind:r.kind,name:r.name,done:!!r.done,due:r.due||'',quantity:r.quantity||'',assignedTo:r.assignedTo||'',...(r.details||{})};
+    if(grouped[r.kind])grouped[r.kind].push(item);
+   }
+   state.home=grouped;
+   localStorage.setItem('hearth-home',JSON.stringify(state.home));
+   renderHome();renderDashboard();
+  }
+  const events=await pb.fetchEvents().catch(()=>[]);
+  if(events.length>0){
+   const pbEvents=events.map(e=>normalizeEvent({id:e.client_id||e.id,pb_id:e.id,calendar:'local',googleCalendarId:null,title:e.title,date:e.date,endDate:e.endDate,time:e.time,end:e.end,allDay:e.allDay,location:e.location,notes:e.notes,reminder:e.reminder,repeat:e.repeat,repeatCount:e.repeatCount,timeZone:e.timeZone}));
+   const googleEvents=state.events.filter(e=>e.googleCalendarId);
+   state.events=[...googleEvents,...pbEvents];
+   state.localEvents=pbEvents;
+   localStorage.setItem('hearth-events',JSON.stringify(pbEvents));
+   render();
+  }
+ }catch(err){console.warn('PocketBase load error:',err.message);}
+}
+
+function setupPocketBaseSubscriptions(){
+ if(!pb.isAuthenticated())return;
+ pb.connectRealtime();
+ pb.subscribe('hearth_settings',payload=>{
+  if(payload.action==='create'||payload.action==='update'){
+   applyPocketBaseSettings(payload.record?.settings);
+   toast('Settings updated from another device');
+  }
+ });
+ pb.subscribe('hearth_items',payload=>{
+  const r=payload.record;if(!r)return;
+  const clientId=r.client_id||r.id;
+  if(payload.action==='delete'){
+   for(const k of kinds)state.home[k]=(state.home[k]||[]).filter(x=>x.id!==clientId&&x.pb_id!==r.id);
+  }else{
+   const item={id:clientId,pb_id:r.id,kind:r.kind,name:r.name,done:!!r.done,due:r.due||'',quantity:r.quantity||'',assignedTo:r.assignedTo||'',...(r.details||{})};
+   const kind=r.kind;
+   if(state.home[kind]){
+    const idx=state.home[kind].findIndex(x=>x.id===clientId||x.pb_id===r.id);
+    if(idx>=0)state.home[kind][idx]=item;else state.home[kind].push(item);
+   }
+  }
+  localStorage.setItem('hearth-home',JSON.stringify(state.home));
+  renderHome();renderDashboard();
+ });
+ pb.subscribe('hearth_events',payload=>{
+  const r=payload.record;if(!r)return;
+  const clientId=r.client_id||r.id;
+  if(payload.action==='delete'){
+   state.events=state.events.filter(e=>e.id!==clientId&&e.pb_id!==r.id);
+   state.localEvents=state.localEvents.filter(e=>e.id!==clientId&&e.pb_id!==r.id);
+  }else{
+   const ev=normalizeEvent({id:clientId,pb_id:r.id,calendar:'local',googleCalendarId:null,title:r.title,date:r.date,endDate:r.endDate,time:r.time,end:r.end,allDay:r.allDay,location:r.location,notes:r.notes,reminder:r.reminder,repeat:r.repeat,repeatCount:r.repeatCount,timeZone:r.timeZone});
+   state.events=state.events.filter(e=>e.id!==clientId&&e.pb_id!==r.id);
+   state.events.push(ev);
+   state.localEvents=state.localEvents.filter(e=>e.id!==clientId&&e.pb_id!==r.id);
+   state.localEvents.push(ev);
+  }
+  localStorage.setItem('hearth-events',JSON.stringify(state.localEvents));
+  render();renderDashboard();
+ });
+}
+
+async function uploadDeviceDataToPocketBase(){
+ if(!pb.isAuthenticated())throw Error('Not logged into PocketBase.');
+ await pb.saveSettings({
+  theme:settings.theme,
+  view:settings.view,
+  destination:state.app,
+  spouse:settings.spouse||'',
+  calendarColors:read(calColorKey,{}),
+  hiddenCalendars:state.hidden||[],
+  favorites:read('hearth-favorites-'+state.account,read('hearth-favorites-device',[]))
+ });
+ for(const k of kinds){
+  for(const item of homeItems(k))await syncPocketBaseItem(item,false);
+ }
+ for(const ev of (state.localEvents||[]))await syncPocketBaseEvent(ev,false);
+}
+
+function updatePocketBaseUI(){
+ const isAuth=pb.isAuthenticated();
+ const disconnected=$('#pbDisconnectedState'),connected=$('#pbConnectedState');
+ if(!disconnected||!connected)return;
+ disconnected.classList.toggle('hidden',isAuth);
+ connected.classList.toggle('hidden',!isAuth);
+ if(isAuth){
+  const user=pb.user();
+  $('#pbUserEmail').textContent=user?.email||'Connected to PocketBase';
+  $('#pbServerUrl').textContent=pb.getUrl();
+ }else{
+  $('#pbUrlInput').value=pb.getUrl();
+ }
+}
 function calendarFor(e){return state.calendars.find(c=>c.id===(e.googleCalendarId||'local'))||localCalendar;}
 function paint(e){const c=calendarFor(e);return `background:${safeColor(c.backgroundColor)};color:${safeColor(c.foregroundColor)}`;}
 let listCache={source:null,key:'',value:null};
@@ -124,8 +328,8 @@ const e=state.editing;if(!e)return;
  if(e.pending)return toast('Sync or discard this pending edit in Sync details before deleting it.');
  try{deferDelete({type:'event',item:e,before:e,account:state.connected?state.account:'device'});$('#eventDialog').close();render();}catch(error){$('#eventError').textContent=error.message;}
 }
-function theme(){const dark=settings.theme==='dark'||settings.theme==='system'&&matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=dark?'dark':'light';$('#themeSelect').value=settings.theme;write('hearth-settings',settings);}
-function openSettings(){$('#defaultView').value=settings.view;$('#accountStatus').textContent=state.connected?'Google Calendar is connected in this browser.':state.configured?'Sign in with Google to load your calendars.':'Google connection needs deployment configuration.';$('#signInBtn').textContent=state.connected?'Switch Google account':'Connect Google';$('#disconnectBtn').classList.toggle('hidden',!state.connected);$('#storageExplanation').textContent=state.shared?'Recipes, meals, tasks, pantry, and shopping are shared with your household and refresh while a household screen is open.':'Household lists and recipes currently save on this device. Connect a configured household to share them across devices.';$('#timezoneLabel').textContent=zone;$('#settingsDialog').showModal();}
+function theme(){const dark=settings.theme==='dark'||settings.theme==='system'&&matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=dark?'dark':'light';$('#themeSelect').value=settings.theme;write('hearth-settings',settings);syncSettingsToPocketBase();}
+function openSettings(){updatePocketBaseUI();$('#defaultView').value=settings.view;$('#accountStatus').textContent=state.connected?'Google Calendar is connected in this browser.':state.configured?'Sign in with Google to load your calendars.':'Google connection needs deployment configuration.';$('#signInBtn').textContent=state.connected?'Switch Google account':'Connect Google';$('#disconnectBtn').classList.toggle('hidden',!state.connected);$('#storageExplanation').textContent=state.shared?'Recipes, meals, tasks, pantry, and shopping are shared with your household and refresh while a household screen is open.':'Household lists and recipes currently save on this device. Connect a configured household to share them across devices.';$('#timezoneLabel').textContent=zone;$('#settingsDialog').showModal();}
 function restoreDeviceHome(){state.home=read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]});for(const kind of kinds)state.home[kind]=(state.home[kind]||[]).map(item=>({...item,id:item.id||crypto.randomUUID(),kind}));}
 async function loadHome(){
  const account=state.account,generation=state.homeGeneration||0;
@@ -139,12 +343,13 @@ function homeItems(kind){let home=state.home;for(const op of outbox.forAccount(s
 function renderHome(){householdUI.render();}
 async function homeChange(kind,item,remove=false){
  state.homeGeneration=(state.homeGeneration||0)+1;const homeAccount=state.account;item={...item,kind};const old=homeItems(kind).find(x=>x.id===item.id);
- if(remove){deferDelete({type:'home',item,before:old||item,account:state.shared?state.account:'device',shared:state.shared});renderHome();return;}
+ if(remove){deferDelete({type:'home',item,before:old||item,account:state.shared?state.account:'device',shared:state.shared});if(pb.isAuthenticated())syncPocketBaseItem(item,true);renderHome();return;}
  const actor=state.shared?state.account:'device';
  item={...item,createdBy:old?.createdBy||actor,updatedBy:actor,completedBy:item.done?(old?.completedBy||actor):null};
  try{
   if(state.shared){try{if(!navigator.onLine||outbox.forAccount(homeAccount).some(o=>o.type!=='event'))throw new TypeError('Offline');const result=await post('/api/household',{...item,account:state.account});if(state.account!==homeAccount)return;item=result.items?.[0]||item;rebasePending(result.items||[]);}catch(e){if(e.status&&e.status<500)throw e;enqueue({type:'home',action:'upsert',item,before:old,account:homeAccount,shared:true});renderHome();return;}}
   const next=applyChanges(state.home,[{item}]);if(!state.shared)localStorage.setItem('hearth-home',JSON.stringify(next));state.home=next;
+  if(pb.isAuthenticated())syncPocketBaseItem(item,false);
   if(state.shared)cacheAccount();renderHome();
  }catch(e){state.lastError=e.message;toast('List change could not be saved: '+e.message);renderHome();throw e;}
 }
@@ -159,14 +364,14 @@ document.addEventListener('click',async e=>{
  if(b?.dataset.day){state.date=parseDay(b.dataset.day);state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();return;}
  if(b?.dataset.share){shareCalendar=state.calendars.find(c=>c.id===b.dataset.share);$('#shareName').textContent=shareCalendar.name;$('#shareEmail').value=state.partner||settings.spouse||'';$('#shareRole').value='reader';$('#shareError').textContent='';$('#shareDialog').showModal();loadSharing();return;}
  if(b?.dataset.colorFor){const calId=b.dataset.colorFor;const existing=$('.color-palette-popover');const wasSame=existing&&existing.dataset.calId===calId;existing?.remove();if(wasSame)return;const pop=document.createElement('div');pop.className='color-palette-popover';pop.dataset.calId=calId;pop.innerHTML=calendarPalette.map((p,i)=>`<button type="button" class="palette-dot${safeColor((state.calendars.find(c=>c.id===calId)||localCalendar).backgroundColor)===p.bg?' selected':''}" data-pick-color="${i}" data-pick-cal="${esc(calId)}" style="background:${p.bg}" aria-label="Color ${i+1}" title="Select color"></button>`).join('');b.closest('.calendar-row').appendChild(pop);return;}
- if(b?.dataset.pickColor!=null){const calId=b.dataset.pickCal,pi=Number(b.dataset.pickColor);const saved=read(calColorKey,{});saved[calId]=pi;write(calColorKey,saved);$('.color-palette-popover')?.remove();if(calId==='local'){applyLocalColor();const localInState=state.calendars.find(c=>c.id==='local');if(localInState){localInState.backgroundColor=localCalendar.backgroundColor;localInState.foregroundColor=localCalendar.foregroundColor;}}else{state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));}renderCalendars();render();renderDashboard();return;}
+ if(b?.dataset.pickColor!=null){const calId=b.dataset.pickCal,pi=Number(b.dataset.pickColor);const saved=read(calColorKey,{});saved[calId]=pi;write(calColorKey,saved);$('.color-palette-popover')?.remove();if(calId==='local'){applyLocalColor();const localInState=state.calendars.find(c=>c.id==='local');if(localInState){localInState.backgroundColor=localCalendar.backgroundColor;localInState.foregroundColor=localCalendar.foregroundColor;}}else{state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));}renderCalendars();render();renderDashboard();syncSettingsToPocketBase();return;}
  if(b?.dataset.recipe){openRecipe(b.dataset.recipe);return;}
  if(b?.dataset.deleteItem||b?.dataset.editItem){const kind=b.dataset.kind,item=homeItems(kind).find(x=>x.id===(b.dataset.deleteItem||b.dataset.editItem));if(!item)return;if(b.dataset.deleteItem){try{await homeChange(kind,item,true);}catch{}}else{editingItem={...item,kind};$('#itemName').value=item.name;$('#itemDue').value=item.due||'';$('#itemQuantity').value=item.quantity||'';$('#taskFields').classList.toggle('hidden',kind!=='tasks');$('#inventoryFields').classList.toggle('hidden',!['pantry','groceries'].includes(kind));$('#itemAssignee').innerHTML='<option value="">Anyone</option>'+[...new Set([state.account,...state.members,settings.spouse].filter(Boolean))].map(email=>`<option value="${esc(email)}">${esc(person(email))}</option>`).join('');$('#itemAssignee').value=item.assignedTo||'';$('#itemPriority').value=item.priority||'normal';$('#itemRepeat').value=item.repeat||'none';$('#itemAmount').value=item.amount||'';$('#itemUnit').value=item.unit||'each';householdUI.prepareItem(item);$('#itemError').textContent='';$('#itemDialog').showModal();}return;}
  const day=e.target.closest('[data-new-day]');if(day){openEvent(null,day.dataset.newDay);return;}
  const timeline=e.target.closest('[data-time-day]');if(timeline){const min=Math.max(0,Math.min(1425,Math.floor((e.clientY-timeline.getBoundingClientRect().top)/15)*15));openEvent(null,timeline.dataset.timeDay,String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0'));}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')$('.color-palette-popover')?.remove();});
-document.addEventListener('change',async e=>{if(e.target.dataset.calendar){const id=e.target.dataset.calendar;state.hidden=state.hidden.filter(x=>x!==id);if(!e.target.checked)state.hidden.push(id);write('hearth-hidden-calendars',state.hidden);render();renderDashboard();}if(e.target.dataset.check){const kind=e.target.dataset.kind,item=homeItems(kind).find(x=>x.id===e.target.dataset.check);try{await completeItem(kind,item,e.target.checked);}catch(error){toast(error.message);}}});
+document.addEventListener('change',async e=>{if(e.target.dataset.calendar){const id=e.target.dataset.calendar;state.hidden=state.hidden.filter(x=>x!==id);if(!e.target.checked)state.hidden.push(id);write('hearth-hidden-calendars',state.hidden);render();renderDashboard();syncSettingsToPocketBase();}if(e.target.dataset.check){const kind=e.target.dataset.kind,item=homeItems(kind).find(x=>x.id===e.target.dataset.check);try{await completeItem(kind,item,e.target.checked);}catch(error){toast(error.message);}}});
 $('#todayBtn').onclick=()=>{state.date=new Date();state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();};
 $('#prevBtn').onclick=()=>navigate(-1);$('#nextBtn').onclick=()=>navigate(1);
 $('#miniPrev').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.mini.getMonth()-1,1);renderMini();};$('#miniNext').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.mini.getMonth()+1,1);renderMini();};
@@ -175,7 +380,7 @@ $('#searchInput').oninput=render;$('#createBtn').onclick=()=>openEvent();$('#all
 $('#connectBtn').onclick=()=>state.connected?sync():location.assign('/auth/google');$('#signInBtn').onclick=()=>location.assign('/auth/google');
 $('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.shared=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');restoreDeviceHome();state.events=[...state.localEvents];state.calendars=[localCalendar];$('#settingsDialog').close();await initConnection();toast('Disconnected. Pending Google changes stay bound to their original account.');}catch(e){toast(e.message);}};
 $('#themeBtn').onclick=()=>{settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';theme();};$('#themeSelect').onchange=e=>{settings.theme=e.target.value;theme();};matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
-$('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);};
+$('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);syncSettingsToPocketBase();};
 $('#settingsBtn').onclick=$('#accountBtn').onclick=openSettings;
 $('#menuBtn').onclick=()=>document.body.classList.toggle(matchMedia('(max-width:700px)').matches?'sidebar-open':'sidebar-closed');
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea,select,dialog')||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key.toLowerCase()==='t')$('#todayBtn').click();if(e.key.toLowerCase()==='c')openEvent();});
@@ -191,6 +396,7 @@ function enqueue(op){const row=outbox.add(op);state.lastError='';renderSyncDetai
 function applyLocalEvent(item,remove=false){
  if(item.localParentId){state.events=state.events.map(e=>e.id===item.localParentId?{...e,excludedDates:[...new Set([...(e.excludedDates||[]),item.occurrenceDate])]}:e);}
  state.events=state.events.filter(e=>e.id!==item.id);if(!remove)state.events.push(item);saveLocal();
+ if(pb.isAuthenticated()&&!item.googleCalendarId)syncPocketBaseEvent(item,remove);
 }
 async function persistEvent(item,before){
  const waiting=outbox.forAccount(state.account).find(op=>op.type==='event'&&op.action==='upsert'&&op.item.id===item.id);
@@ -240,12 +446,12 @@ function decorateTimedEvents(){for(const el of $$('.timed-event')){const event=d
 $('.sync-card').insertAdjacentHTML('beforeend','<button class="text-button" id="syncDetailsButton">Sync details</button>');
 $('#settingsDialog').insertAdjacentHTML('beforeend','<label>Spouse Google email<input id="spouseSetting" type="email" placeholder="your-spouse@gmail.com"></label><p class="muted">Used by your calendar sharing switch. Household membership is verified by the server configuration.</p>');
 $('#spouseSetting').value=settings.spouse||state.partner||'';
-$('#spouseSetting').onchange=e=>{if(e.target.validity.valid){settings.spouse=e.target.value.trim().toLowerCase();write('hearth-settings',settings);}};
+$('#spouseSetting').onchange=e=>{if(e.target.validity.valid){settings.spouse=e.target.value.trim().toLowerCase();write('hearth-settings',settings);syncSettingsToPocketBase();}};
 $('#syncDetailsButton').onclick=()=>{renderSyncDetails();$('#syncDialog').showModal();};
 $('#retryQueue').onclick=async()=>{for(const op of outbox.rows.filter(o=>[state.account,'device'].includes(o.account))){if(op.status==='failed'&&(op.type==='batch'||op.error?.includes('changed in Google')))continue;op.status='pending';op.error='';}outbox.persist();await flushQueue();};
 $('#refreshAll').onclick=async()=>{await sync();await loadHome();renderSyncDetails();};
 $('#undoDelete').onclick=()=>undoOperation($('#undoDelete').dataset.id);
-function undoOperation(id){const op=outbox.rows.find(x=>x.id===id);if(!op||op.status==='sending')return toast('This change is already being sent.');outbox.remove(id);render();renderHome();toast(op.action==='delete'?'Deletion undone':'Pending change discarded');}
+function undoOperation(id){const op=outbox.rows.find(x=>x.id===id);if(!op||op.status==='sending')return toast('This change is already being sent.');outbox.remove(id);render();renderHome();if(pb.isAuthenticated()&&op.action==='delete'){if(op.type==='event')syncPocketBaseEvent(op.item,false);else if(op.type==='home')syncPocketBaseItem(op.item,false);}toast(op.action==='delete'?'Deletion undone':'Pending change discarded');}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;
  if(b.dataset.discard){undoOperation(b.dataset.discard);return;}
  if(b.dataset.planDay){state.planDay=b.dataset.planDay;householdUI.openPicker(state.planDay);return;}
@@ -347,6 +553,71 @@ async function loadSharing(){
  catch(e){$('#shareError').textContent=e.message;$('#spouseStatus').textContent='Sharing status unavailable';}
 }
 
-let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render});
+$('#pbSignInBtn').onclick=async()=>{
+ const url=$('#pbUrlInput').value.trim();
+ const email=$('#pbEmailInput').value.trim();
+ const password=$('#pbPasswordInput').value;
+ $('#pbError').textContent='';
+ if(!url)return $('#pbError').textContent='Please enter your PocketBase server URL.';
+ if(!email||!password)return $('#pbError').textContent='Please enter your email and password.';
+ $('#pbSignInBtn').disabled=true;
+ try{
+  pb.setUrl(url);
+  await pb.login(email,password);
+  $('#pbPasswordInput').value='';
+  updatePocketBaseUI();
+  setupPocketBaseSubscriptions();
+  await loadPocketBaseData();
+  toast('Connected to PocketBase');
+ }catch(err){
+  $('#pbError').textContent=err.message||'Failed to sign in to PocketBase.';
+ }finally{$('#pbSignInBtn').disabled=false;}
+};
+
+$('#pbSignUpBtn').onclick=async()=>{
+ const url=$('#pbUrlInput').value.trim();
+ const email=$('#pbEmailInput').value.trim();
+ const password=$('#pbPasswordInput').value;
+ $('#pbError').textContent='';
+ if(!url)return $('#pbError').textContent='Please enter your PocketBase server URL.';
+ if(!email||!password)return $('#pbError').textContent='Please enter an email and password to create an account.';
+ if(password.length<8)return $('#pbError').textContent='Password must be at least 8 characters.';
+ $('#pbSignUpBtn').disabled=true;
+ try{
+  pb.setUrl(url);
+  await pb.register(email,password);
+  $('#pbPasswordInput').value='';
+  updatePocketBaseUI();
+  setupPocketBaseSubscriptions();
+  await loadPocketBaseData();
+  toast('PocketBase account created & connected');
+ }catch(err){
+  $('#pbError').textContent=err.message||'Failed to register with PocketBase.';
+ }finally{$('#pbSignUpBtn').disabled=false;}
+};
+
+$('#pbDisconnectBtn').onclick=()=>{
+ pb.logout();
+ updatePocketBaseUI();
+ toast('Disconnected from PocketBase');
+};
+
+$('#pbUploadDataBtn').onclick=async()=>{
+ $('#pbUploadDataBtn').disabled=true;
+ try{
+  toast('Uploading device data to PocketBase…');
+  await uploadDeviceDataToPocketBase();
+  toast('Device data uploaded to PocketBase');
+ }catch(err){
+  toast('Failed to upload data: '+err.message);
+ }finally{$('#pbUploadDataBtn').disabled=false;}
+};
+
+let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render,syncSettingsToPocketBase,syncPocketBaseBatch});
 await householdUI.migrateLocal();
 householdUI.navigate(state.app,false);theme();render();renderHome();initConnection();
+updatePocketBaseUI();
+if(pb.isAuthenticated()){
+ setupPocketBaseSubscriptions();
+ loadPocketBaseData();
+}

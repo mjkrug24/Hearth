@@ -124,3 +124,46 @@ test('Visual review captures calendar, home and mobile dark mode',async({page})=
  await page.getByRole('button',{name:'Home',exact:true}).click();await page.screenshot({path:'test-results/home.png'});
  await page.setViewportSize({width:390,height:844});await page.click('#themeBtn');await page.screenshot({path:'test-results/mobile.png'});
 });
+
+test('PocketBase settings UI connects, displays status, and disconnects', async({page})=>{
+ await setup(page);
+ await page.route('**/api/collections/users/auth-with-password', r => r.fulfill({
+  status: 200,
+  json: { token: 'mock-pb-token', record: { id: 'usr-pb-1', email: 'family@example.com' } }
+ }));
+ await page.route('**/api/collections/hearth_settings/records*', r => r.fulfill({
+  status: 200,
+  json: { items: [] }
+ }));
+ await page.route('**/api/collections/hearth_items/records*', r => r.fulfill({
+  status: 200,
+  json: { items: [] }
+ }));
+ await page.route('**/api/collections/hearth_events/records*', r => r.fulfill({
+  status: 200,
+  json: { items: [] }
+ }));
+
+ await page.click('#settingsBtn');
+ await expect(page.locator('#settingsDialog')).toBeVisible();
+
+ await expect(page.locator('#pbDisconnectedState')).toBeVisible();
+ await expect(page.locator('#pbConnectedState')).not.toBeVisible();
+
+ await page.fill('#pbEmailInput', '');
+ await page.click('#pbSignInBtn');
+ await expect(page.locator('#pbError')).toContainText('Please enter your email and password');
+
+ await page.fill('#pbEmailInput', 'family@example.com');
+ await page.fill('#pbPasswordInput', 'password123');
+ await page.click('#pbSignInBtn');
+
+ await expect(page.locator('#pbConnectedState')).toBeVisible();
+ await expect(page.locator('#pbDisconnectedState')).not.toBeVisible();
+ await expect(page.locator('#pbUserEmail')).toHaveText('family@example.com');
+
+ await page.click('#pbDisconnectBtn');
+ await expect(page.locator('#pbDisconnectedState')).toBeVisible();
+ await expect(page.locator('#pbConnectedState')).not.toBeVisible();
+});
+
