@@ -1,45 +1,46 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hearth Calendar</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <button class="icon-btn menu" aria-label="Menu"><i data-lucide="menu"></i></button>
-        <div class="brand"><span class="calendar-mark"><span class="hearth-h">H</span></span><span>Hearth</span></div>
-        <button id="todayBtn" class="text-btn">Today</button>
-        <div class="date-nav"><button class="icon-btn" id="prevBtn" aria-label="Previous"><i data-lucide="chevron-left"></i></button><button class="icon-btn" id="nextBtn" aria-label="Next"><i data-lucide="chevron-right"></i></button></div>
-        <h1 id="periodTitle">September 2026</h1><div class="app-tabs"><button class="tab active" data-app="calendar">Calendar</button><button class="tab" data-app="household">Home</button></div>
-        <label class="search"><i data-lucide="search"></i><input id="searchInput" placeholder="Search" /></label>
-        <div class="top-actions"><button class="icon-btn" id="themeBtn" aria-label="Toggle dark mode"><i data-lucide="moon"></i></button><button class="icon-btn" id="helpBtn" aria-label="Help"><i data-lucide="circle-help"></i></button><button class="icon-btn" id="settingsBtn" aria-label="Settings"><i data-lucide="settings"></i></button><button class="icon-btn" id="appsBtn" aria-label="Google apps"><i data-lucide="grid-2x2"></i></button><button class="avatar" id="accountBtn" aria-label="Account">M</button></div>
-      </header>
-      <main class="main">
-        <aside class="sidebar" id="sidebar">
-          <button class="create-btn" id="createBtn"><span class="plus">+</span> Create</button>
-          <section class="mini-wrap"><div class="mini-head"><button class="icon-btn mini-prev"><i data-lucide="chevron-left"></i></button><strong id="miniTitle">September 2026</strong><button class="icon-btn mini-next"><i data-lucide="chevron-right"></i></button></div><div class="mini-weekdays"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div><div id="miniCalendar" class="mini-calendar"></div></section>
-          <section class="side-section"><div class="side-label">My calendars <i data-lucide="chevron-up"></i></div><div id="googleCalendarList"><p class="calendar-empty">Connect Google to load calendars</p></div><button class="add-other" id="addCalendarBtn"><i data-lucide="plus"></i> Add other calendars</button></section>
-          <div class="sync-card" id="syncCard"><div class="sync-icon"><i data-lucide="refresh-cw"></i></div><div><strong>Google Calendar</strong><p id="syncStatus">Not connected</p></div><button id="connectBtn" class="connect-btn">Connect</button></div>
-        </aside>
-        <section class="calendar-area">
-          <div class="view-toolbar"><div></div><div class="view-switch"><button data-view="day">Day</button><button data-view="week">Week</button><button data-view="month" class="active">Month</button><button data-view="schedule">Schedule</button><button class="icon-btn" id="viewMoreBtn" aria-label="Cycle calendar view"><i data-lucide="chevron-down"></i></button></div></div>
-          <div id="monthView" class="month-view"><div class="week-header"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div><div id="monthGrid" class="month-grid"></div></div>
-          <div id="weekView" class="week-view hidden"></div>
-          <div id="scheduleView" class="schedule-view hidden"></div>
-        </section>
-        <section id="householdView" class="household-view hidden"><div class="household-head"><div><span class="eyebrow">THE JOHNSON HOUSEHOLD</span><h2>Home, together.</h2><p>Plan meals, share lists, and keep the day moving.</p></div><div class="members"><span class="member mine">M</span><span class="member wife">E</span><span>Shared with Emilee</span></div></div><div class="home-grid"><article class="home-card"><div class="card-title"><h3>✓ Tasks</h3></div><div id="taskList"></div><div class="quick-add"><input id="taskInput" placeholder="Add a task…"><button id="taskQuickAdd">Add</button></div></article><article class="home-card"><div class="card-title"><h3>🛒 Grocery list</h3><button id="clearCheckedGroceries">Clear checked</button></div><div id="groceryList"></div><div class="quick-add"><input id="groceryInput" placeholder="Add an item…"><button id="groceryQuickAdd">Add</button></div></article><article class="home-card"><div class="card-title"><h3>🍴 Make with what you have</h3><button id="refreshRecipes">Refresh</button></div><p>Matched from your list — no AI or subscription.</p><div id="recipeList"></div></article><article class="home-card"><div class="card-title"><h3>♥ Meal check</h3></div><p>Enter ingredients for a free, transparent health score.</p><textarea id="mealInput" placeholder="Chicken, broccoli, brown rice, olive oil"></textarea><div id="mealResult">Enter ingredients to see your score.</div><button id="scoreMealBtn">Check this meal</button></article></div></section>
-      </main>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hearth · Calendar & home</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<header class="topbar">
+  <button class="icon" id="menuBtn" aria-label="Toggle calendars">☰</button>
+  <a class="brand" href="/"><span>H</span> Hearth</a>
+  <nav class="app-tabs" aria-label="Workspace"><button data-app="calendar" class="active">Calendar</button><button data-app="home">Home</button></nav>
+  <div class="top-spacer"></div><button class="icon" id="themeBtn" aria-label="Toggle dark mode">◐</button><button class="icon" id="settingsBtn" aria-label="Settings">⚙</button><button id="accountBtn" class="button">Google account</button>
+</header>
+<main>
+  <aside id="sidebar">
+    <button class="create" id="createBtn"><span>＋</span> Create event</button>
+    <section class="mini"><div class="mini-head"><strong id="miniTitle"></strong><button class="icon" id="miniPrev" aria-label="Previous mini-calendar month">‹</button><button class="icon" id="miniNext" aria-label="Next mini-calendar month">›</button></div><div id="miniGrid"></div></section>
+    <div id="calendarLists"></div><a class="quiet-link" href="https://calendar.google.com/calendar/u/0/r/settings" target="_blank" rel="noopener">Manage calendars in Google ↗</a>
+    <section class="sync-card"><strong>Google Calendar</strong><p id="syncStatus" role="status">Checking connection…</p><button id="connectBtn" class="button">Connect</button></section>
+  </aside>
+  <section id="calendarWorkspace">
+    <div class="toolbar"><button class="button" id="todayBtn">Today</button><button class="icon" id="prevBtn" aria-label="Previous period">‹</button><button class="icon" id="nextBtn" aria-label="Next period">›</button><h1 id="periodTitle"></h1><label class="search"><span class="sr-only">Search events</span><input id="searchInput" type="search" placeholder="Search events"></label><select id="viewSelect" aria-label="Calendar view"><option value="month">Month</option><option value="week">Week</option><option value="day">Day</option><option value="schedule">Schedule</option></select></div>
+    <div id="calendarNotice" class="notice hidden" role="status"></div><div id="calendarContent"></div><footer id="calendarFooter"></footer>
+  </section>
+  <section id="homeWorkspace" class="hidden">
+    <div class="home-heading"><div><p class="eyebrow">YOUR EVERYDAY, ORGANIZED</p><h1>A little more room for life.</h1><p>Tasks, groceries, and something good for dinner.</p></div><span class="storage-badge" id="homeStatus">Saved on this device</span></div>
+    <div class="home-grid">
+      <article class="card"><div class="card-heading"><h2>Tasks</h2><button class="text-button" id="clearTasks">Clear completed</button></div><form id="taskForm" class="add-form"><input name="name" aria-label="Task name" placeholder="What needs doing?" required maxlength="200"><input name="due" type="date" aria-label="Task due date"><button class="primary">Add</button></form><div id="taskList"></div></article>
+      <article class="card"><div class="card-heading"><h2>Groceries</h2><button class="text-button" id="clearGroceries">Clear checked</button></div><form id="groceryForm" class="add-form"><input name="name" aria-label="Grocery item" placeholder="Add an ingredient" required maxlength="200"><input name="quantity" aria-label="Quantity" placeholder="Quantity" maxlength="50"><button class="primary">Add</button></form><div id="groceryList"></div></article>
+      <article class="card"><h2>What’s for dinner?</h2><p class="muted">Recipe ideas matched to all ingredients on your grocery list. Checked items count too.</p><div id="recipeList"></div></article>
+      <article class="card"><h2>Meal balance</h2><p class="muted">A simple food-group checklist. Ingredient names alone cannot establish calories, portions, or a medical health score.</p><form id="mealForm"><label>What are you making?<textarea id="mealInput" placeholder="Chicken, broccoli, brown rice…" required maxlength="2000"></textarea></label><button class="primary">Check ingredients</button></form><div id="mealResult" aria-live="polite"></div></article>
     </div>
-    <div id="eventModal" class="modal hidden"><div class="modal-card event-card"><div class="modal-head"><span></span><button class="icon-btn close-modal"><i data-lucide="x"></i></button></div><form id="eventForm"><input id="eventTitle" class="event-title-input" required placeholder="Add title" /><div class="event-meta"><i data-lucide="clock-3"></i><div><div class="date-row"><input type="date" id="eventDate" required /><input type="time" id="eventTime" value="10:00" /><span>–</span><input type="time" id="eventEnd" value="11:00" /></div><label class="all-day"><input type="checkbox" id="allDay" /> All day</label></div><i data-lucide="map-pin"></i><input id="eventLocation" placeholder="Add location" /><i data-lucide="bell"></i><select id="eventReminder"><option>10 minutes before</option><option>30 minutes before</option><option>1 hour before</option><option>No notification</option></select><i data-lucide="calendar"></i><select id="eventCalendar"><option value="mike">Mike Johnson</option><option value="work">Work</option><option value="birthdays">Birthdays</option></select><i data-lucide="align-left"></i><textarea id="eventNotes" placeholder="Add description or attachments"></textarea></div><div class="modal-actions"><button type="button" class="delete-btn hidden" id="deleteBtn">Delete</button><span></span><button type="button" class="cancel-btn close-modal">Cancel</button><button class="save-btn" type="submit">Save</button></div></form></div></div>
-    <div id="syncModal" class="modal hidden"><div class="modal-card sync-modal"><button class="icon-btn close-modal"><i data-lucide="x"></i></button><div class="google-g">G</div><h2>Connect Google Calendar</h2><p>Keep your Hearth events and Google Calendar in sync, in both directions.</p><div class="sync-steps"><span>1</span><p>Sign in securely with Google</p><span>2</span><p>Choose calendars to sync</p><span>3</span><p>Changes sync automatically</p></div><button class="google-connect" id="finishConnect"><span class="google-g small">G</span> Continue with Google</button><small id="syncNote">A configured local sync service is required.</small></div></div>
-    <div id="addCalendarModal" class="modal hidden"><div class="modal-card sync-modal"><button class="icon-btn close-modal"><i data-lucide="x"></i></button><h2>Add calendar</h2><p>To show an additional Google calendar, connect your account and select it from the Google Calendar list.</p><button class="google-connect" id="addCalendarConnect">Connect Google Calendar</button></div></div>
-    <div id="toast" class="toast hidden"></div>
-    <script src="https://unpkg.com/lucide@latest"></script><script src="app.js"></script>
-  </body>
-</html>
+  </section>
+</main>
+<dialog id="eventDialog"><form id="eventForm">
+  <div class="dialog-heading"><h2 id="eventHeading">New event</h2><button type="button" class="icon" data-close aria-label="Close event">×</button></div>
+  <label>Title<input id="eventTitle" required maxlength="500" autocomplete="off"></label>
+  <div class="form-grid"><label>Start date<input id="eventDate" type="date" required></label><label>End date<input id="eventEndDate" type="date" required></label><label class="time-field">Start time<input id="eventTime" type="time" required></label><label class="time-field">End time<input id="eventEnd" type="time" required></label></div>
+  <label class="check"><input id="allDay" type="checkbox"> All day</label><p class="muted" id="eventTimezone"></p>
+  <label>Calendar<select id="eventCalendar"></select></label><label>Location<input id="eventLocation" maxlength="1000"></label>
+  <label>Reminder<select id="eventReminder"><option value="default">Calendar default</option><option value="none">No notification</option><option value="10">10 minutes before</option><option value="30">30 minutes before</option><option value="60">1 hour before</option></select></label>
+  <label>Description<textarea id="eventNotes" maxlength="8000"></textarea></label><p id="eventInfo" class="muted"></p><p id="eventError" class="error" role="alert"></p>
+  <div class="dialog-actions"><button type="button" id="deleteBtn" class="danger">Delete</button><a id="googleEventLink" target="_blank" rel="noopener">Open in Google ↗</a><span></span><button type="button" class="button" data-close>Cancel</button><button type="submit" class="primary" id="saveEventBtn">Save</button></div>
+</form></dialog>
+<dialog id="settingsDialog"><div class="dialog-heading"><h2>Settings & account</h2><button class="icon" data-close aria-label="Close settings">×</button></div><label>Appearance<select id="themeSelect"><option value="system">Match device</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Default calendar view<select id="defaultView"><option>month</option><option>week</option><option>day</option><option>schedule</option></select></label><h3>Google account</h3><p id="accountStatus"></p><button class="primary" id="signInBtn">Connect Google</button><button class="button" id="disconnectBtn">Disconnect this browser</button><h3>Household storage</h3><p id="storageExplanation"></p><h3>Your display timezone</h3><p id="timezoneLabel"></p><p class="muted">Google notifications follow your calendar settings. Local events do not send background reminders. Keyboard shortcuts: T for today, C to create, Escape to close.</p></dialog>
+<dialog id="recipeDialog"><div class="dialog-heading"><h2 id="recipeTitle"></h2><button class="icon" data-close aria-label="Close recipe">×</button></div><div id="recipeDetails"></div><button class="primary" id="addIngredients">Add missing ingredients</button></dialog>
+<dialog id="shareDialog"><form id="shareForm"><div class="dialog-heading"><h2>Calendar sharing</h2><button type="button" class="icon" data-close aria-label="Close sharing">×</button></div><p id="shareName"></p><label>Google account email<input id="shareEmail" type="email" required></label><label>Access<select id="shareRole"><option value="reader">See events</option><option value="writer">See and edit events</option><option value="none">Remove access</option></select></label><p class="muted">This changes Google Calendar permissions. Only the owner can share a calendar. The recipient may need to add it in Google Calendar before it appears here.</p><p class="error" id="shareError"></p><button class="primary">Apply sharing</button></form></dialog>
+<div id="toast" class="hidden" role="status"></div><script type="module" src="app.js"></script>
+</body></html>
