@@ -43,7 +43,7 @@ async function sync(){
   finally{if(sequence===syncSequence){state.loading=false;$('#connectBtn').disabled=false;}}
 }
 async function initConnection(){
-  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$('dialog[open]').forEach(d=>d.close());state.shared=false;restoreDeviceHome();}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.members=s.members||[];state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){state.events=[];await sync();await flushQueue();}}
+  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());state.shared=false;restoreDeviceHome();}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.members=s.members||[];state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){state.events=[];await sync();await flushQueue();}}
   catch{const cached=read('hearth-account-cache',null);if(cached){Object.assign(state,{account:cached.account,calendars:cached.calendars,events:cached.events,connected:true,shared:cached.shared,home:cached.home||state.home,members:cached.members||[],partner:cached.partner,verified:false});$('#syncStatus').textContent='Offline · cached calendars';$('#connectBtn').textContent='Retry sync';}else $('#syncStatus').textContent='Offline · local calendar';}
   await loadHome();render();
 }
@@ -192,6 +192,7 @@ async function flushQueue(){
    if(op.type==='event'){if(op.action==='delete')return post('/api/google/events/'+encodeURIComponent(op.item.googleEventId)+'?calendar='+encodeURIComponent(op.item.googleCalendarId),{etag:op.item.etag,account:op.account},'DELETE');return post('/api/google/events',{...op.item,account:op.account});}
    return post('/api/household',{...op.item,account:op.account},op.action==='delete'?'DELETE':'POST');
   },async(op,result)=>{
+   if(state.account!==op.account)return;
    if(op.type==='event'){state.events=state.events.filter(e=>e.id!==op.item.id&&e.id!==op.before?.id);if(result?.event)state.events.push(normalizeEvent(result.event));}
    else if(op.type==='batch'){const actual=op.changes.map(c=>({...c,item:result?.items?.find(i=>i.id===c.item.id)||c.item}));state.home=applyChanges(state.home,actual);}else{state.home[op.item.kind]=(state.home[op.item.kind]||[]).filter(x=>x.id!==op.item.id);if(op.action!=='delete')state.home[op.item.kind].push(result?.items?.[0]||op.item);}
    rebasePending(result?.items||[]);cacheAccount();render();renderHome();

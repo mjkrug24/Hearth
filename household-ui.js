@@ -36,6 +36,7 @@ export function installHousehold(ctx){
  $('#pantryForm').insertAdjacentHTML('beforeend','<label class="compact-field">Expiration (optional)<input name="expires" type="date" aria-label="Pantry expiration date"></label>');
  $('#pantryList').insertAdjacentHTML('beforebegin','<div id="useSoon" class="notice hidden"></div>');
  $('#groceryForm').insertAdjacentHTML('beforeend',`<label class="compact-field">Amount<input name="amount" type="number" min="0" max="100000" step="0.01" aria-label="Grocery amount"></label><label class="compact-field">Unit<select name="unit" aria-label="Grocery unit">${options(unitOptions,'each')}</select></label>`);
+ const groceryOptions=document.createElement('details');groceryOptions.className='grocery-options';groceryOptions.innerHTML='<summary>Quantity & notes</summary><div class="grocery-fields"></div>';$('#groceryForm').append(groceryOptions);groceryOptions.querySelector('.grocery-fields').append($('#groceryForm [name=quantity]'),...$$('#groceryForm .compact-field'));
  $('#groceryList').insertAdjacentHTML('beforebegin',`<div class="shopping-tools"><label class="check"><input id="shoppingMode" type="checkbox"> Shopping mode</label>${button('Put purchased items in pantry','id="transferPurchased"')}<p id="shoppingProgress" class="muted" aria-live="polite"></p></div>`);
  $('#recipeList').insertAdjacentHTML('beforebegin',`<div class="recipe-filters"><input id="recipeSearch" type="search" aria-label="Search recipes" placeholder="Find a recipe or ingredient"><select id="recipeTime" aria-label="Preparation time"><option value="0">Any cook time</option><option value="15">15 minutes or less</option><option value="30">30 minutes or less</option><option value="45">45 minutes or less</option></select><label class="check"><input id="recipeFavorites" type="checkbox"> Favorites</label><label class="check"><input id="recipePantry" type="checkbox"> All ingredients at home</label><label class="check"><input id="recipeUseSoon" type="checkbox"> Use soon</label></div><div id="recipeImport"></div>`);
  $('#taskFields').insertAdjacentHTML('beforeend','<fieldset id="editRotation"><legend>Alternate between members</legend></fieldset>');
@@ -58,7 +59,7 @@ export function installHousehold(ctx){
   $('#calendarWorkspace').classList.toggle('hidden',destination!=='calendar');$('#homeWorkspace').classList.toggle('hidden',destination==='calendar');$('#sidebar').classList.toggle('hidden',destination!=='calendar');$('#menuBtn').classList.toggle('hidden',destination!=='calendar');document.body.classList.remove('sidebar-open');
   $$('[data-destination]').forEach(el=>el.classList.toggle('hidden',el.dataset.destination!==destination));
   $('#homeWorkspace').dataset.screen=destination;$('#homeWorkspace').scrollTop=0;
-  const heading=headings[destination];if(heading){$('.home-heading h1').textContent=heading[0];$('.home-heading p:last-child').textContent=heading[1];$('.eyebrow').textContent=destination==='home'?'WELCOME HOME':destination.toUpperCase();}
+  const heading=headings[destination];if(heading){$('.home-heading h1').innerHTML=`<span class="desktop-heading">${esc(heading[0])}</span><span class="mobile-heading">${esc(destination==='home'?heading[0]:destination[0].toUpperCase()+destination.slice(1))}</span>`;$('.home-heading p:last-child').textContent=heading[1];$('.eyebrow').textContent=destination==='home'?'WELCOME HOME':destination.toUpperCase();}
   render();if(refresh){if(destination!=='calendar')loadHome();sync();}
  }
  $$('[data-app]').forEach(b=>b.onclick=()=>navigate(b.dataset.app));
@@ -96,6 +97,7 @@ export function installHousehold(ctx){
  function snapshot(){return kinds.flatMap(k=>homeItems(k).map(i=>({id:i.id,updated_at:i.updated_at||null}))).sort((a,b)=>a.id.localeCompare(b.id));}
  async function batch(label,changes,expected=snapshot()){
   if(!changes.length){toast('Nothing to change.');return;}
+  if(state.shared&&state.account==='device')throw Error('Reconnect your Google account before changing shared items.');
   if(state.shared&&outbox.forAccount(state.account).some(o=>o.status==='failed'))throw Error('Open Sync details to discard the failed operation, then refresh and review again.');const actor=state.shared?state.account:'device';changes=changes.map(c=>({...c,item:{...c.item,createdBy:c.item.createdBy||actor,updatedBy:actor,completedBy:c.item.done?actor:null}}));
   if(!state.shared){const next=applyChanges(state.home,changes);localStorage.setItem('hearth-home',JSON.stringify(next));state.home=next;render();return;}
   state.homeGeneration=(state.homeGeneration||0)+1;const op=enqueue({type:'batch',action:'apply',item:{name:label},changes,expected,account:state.account,shared:true});render();await flushQueue();const pending=outbox.rows.find(o=>o.id===op.id);if(pending?.status==='failed'){outbox.remove(op.id);render();throw Error(pending.error);}if(pending)toast('Saved offline · waiting to sync');
