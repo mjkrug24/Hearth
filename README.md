@@ -1,6 +1,6 @@
 # Hearth
 
-Calendar and household workspace with a warm cream/forest-green theme and coordinated dark mode. Uses Google Calendar directly and optionally Supabase for shared tasks, groceries, pantry, meals, and custom recipes. No AI service is used.
+Calendar and household workspace with a warm cream/forest-green theme and coordinated dark mode. Uses Google Calendar directly and PocketBase for real-time cross-device sync of tasks, chores, groceries, pantry, meals, recipes, and user settings. No AI service is used.
 
 ## Run and verify
 
@@ -14,14 +14,12 @@ The local server and Vercel use the same API handlers. Public files are explicit
 
 Tests:
 
-- `npm test`: calendar math, timezone normalization, pagination, event writes, cookie encryption, request-origin checks.
-- `npx playwright install chromium`, then `npm run test:browser`: desktop/mobile browser workflows and timeline geometry using mocked Google responses. No test changes a real calendar.
+- `npm test`: calendar math, timezone normalization, pagination, event writes, cookie encryption, request-origin checks, and PocketBase client integration.
+- `npx playwright install chromium`, then `npm run test:browser`: desktop/mobile browser workflows, login card, and timeline geometry using mocked Google and PocketBase responses. No test changes a real calendar.
 - `npm run icons`: render the SVG master into favicon, Apple touch, regular, and maskable app icons.
 - `npm run screenshots`: start an isolated local preview on port 3108 and capture all five destinations in desktop/mobile and light/dark variants under `test-results/screenshots/`. All API calls and household data in these screenshots are fixtures.
 
 On Windows PowerShell with script execution disabled, use `npm.cmd` and `npx.cmd`.
-
-The test suite also runs the real SQL migration and transaction function in an in-memory [PGlite PostgreSQL database](https://pglite.dev/docs/). It checks rollback, duplicate receipts, stale snapshots, and database permissions without connecting to your Supabase project.
 
 ## Vercel
 
