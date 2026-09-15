@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {monthDates,dateKey,occursOn,layoutEvents,normalizeEvent} from '../calendar-model.js';
-import {recipes,matches,mealGroups} from '../recipes.js';
 import {recipes,matches,mealGroups,normalizeCustomRecipe} from '../recipes.js';
 test('Six-row months include the last day',()=>{const days=monthDates(new Date(2026,7,1));assert.equal(days.length,42);assert(days.some(d=>dateKey(d)==='2026-08-31'));});
 test('Nine hour event covers 480 through 1020; overlaps get lanes',()=>{const day='2026-09-15',e={id:'work',date:day,endDate:day,time:'08:00',end:'17:00'};const result=layoutEvents([e,{...e,id:'lunch',time:'12:00',end:'13:00'}],day);assert.equal(result[0].start,480);assert.equal(result[0].end,1020);assert.equal(result[0].lanes,2);assert.notEqual(result[0].lane,result[1].lane);});

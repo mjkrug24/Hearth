@@ -10,7 +10,6 @@ export const recipes = [
 ];
 const aliases={eggs:['egg','eggs'],tomato:['tomato','tomatoes'],potato:['potato','potatoes'],chickpeas:['chickpea','chickpeas','garbanzo'], 'black beans':['black bean','black beans','beans'], 'bell pepper':['bell pepper','bell peppers','pepper'], oats:['oat','oats','oatmeal']};
 export function hasIngredient(items,ingredient){return items.some(item=>(aliases[ingredient]||[ingredient]).some(alias=>new RegExp('(^|\\W)'+alias+'(s)?($|\\W)','i').test(item.name)));}
-export function matches(items){return recipes.map((r,id)=>({...r,id,missing:r.ingredients.filter(i=>!hasIngredient(items,i))})).sort((a,b)=>(a.missing.length/a.ingredients.length)-(b.missing.length/b.ingredients.length));}
 export function matches(items, list = recipes){return list.map((r,id)=>({...r,id,missing:r.ingredients.filter(i=>!hasIngredient(items,i))})).sort((a,b)=>(a.missing.length/a.ingredients.length)-(b.missing.length/b.ingredients.length));}
 export function normalizeCustomRecipe(recipe){
  if(!recipe||typeof recipe!=='object')throw new Error('Invalid recipe data.');
