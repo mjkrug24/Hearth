@@ -27,4 +27,4 @@ http.createServer(async(req,res)=>{
   res.setHeader('Content-Type',file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.svg')?'image/svg+xml':file.endsWith('.png')?'image/png':file.endsWith('.ico')?'image/x-icon':file.endsWith('.json')?'application/manifest+json':'text/javascript; charset=utf-8');
   fs.createReadStream(path.join(root,file)).pipe(res);
  }catch(e){res.status(500).json({error:e.message});}
-}).listen(port,'127.0.0.1',()=>console.log('Hearth: http://localhost:'+port));
+}).listen(port,process.env.HOST||'0.0.0.0',()=>console.log('Hearth: http://localhost:'+port));

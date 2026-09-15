@@ -42,11 +42,15 @@ export class PocketBaseClient {
   }
 
   getUrl() {
-    return this.url.replace(/\/+$/, '');
+    let u = (this.url || '').trim().replace(/\/+$/, '');
+    if (u && !/^https?:\/\//i.test(u)) u = 'http://' + u;
+    return u;
   }
 
   setUrl(newUrl) {
-    this.url = (newUrl || '').trim().replace(/\/+$/, '');
+    let clean = (newUrl || '').trim().replace(/\/+$/, '');
+    if (clean && !/^https?:\/\//i.test(clean)) clean = 'http://' + clean;
+    this.url = clean;
     const storage = getStorage();
     if (storage) storage.setItem(STORAGE_URL, this.url);
     if (this.sse) {
