@@ -11,4 +11,37 @@ export const recipes = [
 const aliases={eggs:['egg','eggs'],tomato:['tomato','tomatoes'],potato:['potato','potatoes'],chickpeas:['chickpea','chickpeas','garbanzo'], 'black beans':['black bean','black beans','beans'], 'bell pepper':['bell pepper','bell peppers','pepper'], oats:['oat','oats','oatmeal']};
 export function hasIngredient(items,ingredient){return items.some(item=>(aliases[ingredient]||[ingredient]).some(alias=>new RegExp('(^|\\W)'+alias+'(s)?($|\\W)','i').test(item.name)));}
 export function matches(items){return recipes.map((r,id)=>({...r,id,missing:r.ingredients.filter(i=>!hasIngredient(items,i))})).sort((a,b)=>(a.missing.length/a.ingredients.length)-(b.missing.length/b.ingredients.length));}
+export function matches(items, list = recipes){return list.map((r,id)=>({...r,id,missing:r.ingredients.filter(i=>!hasIngredient(items,i))})).sort((a,b)=>(a.missing.length/a.ingredients.length)-(b.missing.length/b.ingredients.length));}
+export function normalizeCustomRecipe(recipe){
+ if(!recipe||typeof recipe!=='object')throw new Error('Invalid recipe data.');
+ const name=String(recipe.name||'').trim();
+ if(!name||name.length>100)throw new Error('Recipe name must be between 1 and 100 characters.');
+ const minutes=Math.max(1,Math.min(720,Math.round(Number(recipe.minutes)||30)));
+ const servings=Math.max(1,Math.min(20,Math.round(Number(recipe.servings)||2)));
+ const portions=[];
+ for(const p of recipe.portions||[]){
+  const pName=String(p.name||'').trim().toLowerCase();
+  const amount=Number(p.amount);
+  const unit=String(p.unit||'each').trim().toLowerCase();
+  if(pName&&Number.isFinite(amount)&&amount>0&&unit){
+   portions.push({name:pName,amount:Math.round(amount*100)/100,unit});
+  }
+ }
+ if(!portions.length)throw new Error('Recipe must have at least one ingredient with a valid amount.');
+ const ingredients=portions.map(p=>p.name);
+ const rawSteps=Array.isArray(recipe.steps)?recipe.steps:String(recipe.steps||'').split('\n');
+ const steps=rawSteps.map(s=>String(s).trim()).filter(Boolean);
+ if(!steps.length)throw new Error('Recipe must have at least one instruction step.');
+ return {
+  id:recipe.id||('recipe-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)),
+  name,
+  minutes,
+  servings,
+  ingredients,
+  portions,
+  steps,
+  custom:true
+ };
+}
 export function mealGroups(text){const groups={'Vegetables / fruit':['broccoli','spinach','carrot','tomato','pepper','cucumber','banana','apple','fruit','vegetable'],'Protein':['chicken','fish','salmon','egg','tofu','lentil','beans','chickpea','beef','yogurt'],'Whole grains':['brown rice','whole wheat','whole grain','oats','quinoa'],'Unsaturated fat sources':['olive oil','avocado','nuts','peanut','seeds']};return Object.entries(groups).map(([name,words])=>({name,found:words.filter(w=>new RegExp('(^|\\W)'+w+'(s)?($|\\W)','i').test(text))}));}
+

@@ -42,6 +42,7 @@ export function normalizedFood(s){return String(s||'').toLowerCase().trim().repl
 export function shoppingNeeds(meals,recipes,pantry,groceries){
  const total=new Map();
  for(const meal of meals){const r=recipes[Number(meal.recipeId)];if(!r)continue;for(const ingredient of r.portions){const key=normalizedFood(ingredient.name)+'|'+ingredient.unit;const row=total.get(key)||{...ingredient,amount:0};row.amount+=ingredient.amount*Number(meal.servings||r.servings)/r.servings;total.set(key,row);}}
+ for(const meal of meals){const r=recipes[Number(meal.recipeId)] || (Array.isArray(recipes) ? recipes.find(x=>x&&(x.id===meal.recipeId||x.name===meal.name)) : null);if(!r)continue;for(const ingredient of r.portions){const key=normalizedFood(ingredient.name)+'|'+ingredient.unit;const row=total.get(key)||{...ingredient,amount:0};row.amount+=ingredient.amount*Number(meal.servings||r.servings)/r.servings;total.set(key,row);}}
  const needs=[];
  for(const row of total.values()){let required=row.amount;
   for(const item of [...pantry,...groceries])if(normalizedFood(item.name)===normalizedFood(row.name)&&item.unit===row.unit&&Number(item.amount)>0)required-=Number(item.amount);

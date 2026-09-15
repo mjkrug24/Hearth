@@ -1,5 +1,6 @@
 import {dateKey,parseDay,addDays,clock,escapeHTML as esc,safeColor,normalizeEvent,occursOn,layoutEvents,monthDates} from './calendar-model.js';
 import {recipes,matches,mealGroups} from './recipes.js';
+import {recipes,matches,mealGroups,normalizeCustomRecipe} from './recipes.js';
 import {Outbox} from './offline.js';
 import {nextDue,overlaps,shiftedEvent,expandLocal,stableUUID,shoppingNeeds,mergePending,normalizedFood} from './planning.js';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
@@ -8,6 +9,8 @@ const write=(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value));}c
 const localCalendar={id:'local',name:'On this device',backgroundColor:'#1967d2',foregroundColor:'#ffffff',accessRole:'owner'};
 const settings=read('hearth-settings',{theme:read('hearth-dark-mode',false)?'dark':'system',view:'month'});
 const state={date:new Date(),mini:new Date(new Date().getFullYear(),new Date().getMonth(),1),view:settings.view||'month',app:'calendar',connected:false,configured:false,loading:false,mutating:false,events:[],calendars:[localCalendar],hidden:read('hearth-hidden-calendars',[]),editing:null,home:read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]}),shared:false,homeReady:false,account:'device',members:[],partner:null,verified:false,lastCalendarSync:null,lastHomeSync:null,lastError:'',mealWeek:addDays(new Date(),-((new Date().getDay()+6)%7))};
+const state={date:new Date(),mini:new Date(new Date().getFullYear(),new Date().getMonth(),1),view:settings.view||'month',app:'calendar',connected:false,configured:false,loading:false,mutating:false,events:[],calendars:[localCalendar],hidden:read('hearth-hidden-calendars',[]),editing:null,home:read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]}),customRecipes:read('hearth-custom-recipes',[]),shared:false,homeReady:false,account:'device',members:[],partner:null,verified:false,lastCalendarSync:null,lastHomeSync:null,lastError:'',mealWeek:addDays(new Date(),-((new Date().getDay()+6)%7))};
+const allRecipes=()=>[...recipes,...(state.customRecipes||[])];
 const outbox=new Outbox();
 // Old synced data is never reused across Google accounts or uploaded on connection.
 state.localEvents=read('hearth-events',[]).filter(e=>!e.googleEventId).map(e=>normalizeEvent({...e,calendar:'local',googleCalendarId:null}));
@@ -117,6 +120,8 @@ function renderHome(){
  }
  $('#recipeList').innerHTML=matches([...homeItems('pantry'),...homeItems('groceries')]).slice(0,8).map(r=>`<button class="recipe-button" data-recipe="${r.id}"><strong>${esc(r.name)}</strong><small>${r.minutes} min · ${r.ingredients.length-r.missing.length}/${r.ingredients.length} ingredients listed</small></button>`).join('');
  renderMealWeek();renderDashboard();renderSyncDetails();
+  $('#recipeList').innerHTML=matches([...homeItems('pantry'),...homeItems('groceries')],allRecipes()).slice(0,16).map(r=>`<button class="recipe-button" data-recipe="${r.id}"><strong>${esc(r.name)}${r.custom?' <span class="custom-badge">Custom</span>':''}</strong><small>${r.minutes} min · ${r.ingredients.length-r.missing.length}/${r.ingredients.length} ingredients listed</small></button>`).join('')||'<p class="muted">No recipes found.</p>';
+  renderMealWeek();renderDashboard();renderSyncDetails();
 }
 async function homeChange(kind,item,remove=false){
  item={...item,kind};const old=homeItems(kind).find(x=>x.id===item.id);
@@ -213,8 +218,22 @@ function renderMealWeek(){
 }
 function openRecipe(id,day=dateKey(new Date()),meal=null){activeRecipe=id;state.editMeal=meal;$('#recipeTitle').textContent=recipes[id].name;$('#recipeServings').value=meal?.servings||recipes[id].servings;$('#recipeDate').value=day;renderRecipe();$('#recipeDialog').showModal();}
 function renderRecipe(){const r=recipes[activeRecipe],servings=Math.max(1,Math.min(20,Number($('#recipeServings').value)||r.servings));$('#recipeDetails').innerHTML='<h3>Ingredients for '+servings+'</h3><ul>'+r.portions.map(i=>'<li>'+Math.round(i.amount*servings/r.servings*100)/100+' '+esc(i.unit+' '+i.name)+'</li>').join('')+'</ul><h3>Method</h3><p class="muted">Method quantities describe the original '+r.servings+' servings; use the scaled ingredient list above. Cooking time may change with pan size.</p><ol>'+r.steps.map(s=>'<li>'+esc(s)+'</li>').join('')+'</ol>';}
+function openRecipe(id,day=dateKey(new Date()),meal=null){
+ const list=allRecipes();let r=list[id];
+ if(!r&&meal?.name){const idx=list.findIndex(x=>x.name===meal.name);if(idx!==-1){id=idx;r=list[idx];}}
+ if(!r)return toast('Recipe not found.');
+ activeRecipe=id;state.editMeal=meal;$('#recipeTitle').textContent=r.name;$('#recipeServings').value=meal?.servings||r.servings;$('#recipeDate').value=day;renderRecipe();$('#recipeDialog').showModal();
+}
+function renderRecipe(){
+ const list=allRecipes(),r=list[activeRecipe];if(!r)return;
+ const servings=Math.max(1,Math.min(20,Number($('#recipeServings').value)||r.servings));
+ $('#recipeDetails').innerHTML='<h3>Ingredients for '+servings+'</h3><ul>'+r.portions.map(i=>'<li>'+Math.round(i.amount*servings/r.servings*100)/100+' '+esc(i.unit+' '+i.name)+'</li>').join('')+'</ul><h3>Method</h3><p class="muted">Method quantities describe the original '+r.servings+' servings; use the scaled ingredient list above. Cooking time may change with pan size.</p><ol>'+r.steps.map(s=>'<li>'+esc(s)+'</li>').join('')+'</ol>';
+ $('#deleteRecipeBtn').classList.toggle('hidden',!r.custom);
+ $('#editRecipeBtn').classList.toggle('hidden',!r.custom);
+}
 async function addShoppingFor(meals){
  const needs=shoppingNeeds(meals,recipes,homeItems('pantry'),homeItems('groceries'));
+ const needs=shoppingNeeds(meals,allRecipes(),homeItems('pantry'),homeItems('groceries'));
  for(const need of needs){const existing=homeItems('groceries').find(g=>normalizedFood(g.name)===normalizedFood(need.name)&&g.unit===need.unit);await homeChange('groceries',{...(existing||{}),id:existing?.id||crypto.randomUUID(),name:need.name,amount:(Number(existing?.amount)||0)+need.amount,unit:need.unit,quantity:'',done:false});}
  toast(needs.length?'Shopping list updated with '+needs.length+' ingredients':'All quantified ingredients are already covered');
 }
@@ -244,14 +263,110 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
  if(b.dataset.stock){const item=homeItems('groceries').find(g=>g.id===b.dataset.stock);try{await homeChange('pantry',{...item,id:await stableUUID('stock|'+item.id),kind:'pantry',done:false});await homeChange('groceries',item,true);}catch{}return;}
  if(b.dataset.revoke){if(!confirm('Remove access for '+b.dataset.revoke+'?'))return;try{await post('/api/google/share',{calendar:shareCalendar.id,email:b.dataset.revoke,role:'none'});await loadSharing();}catch(error){$('#shareError').textContent=error.message;}}
 });
+  if(b.dataset.plannedMeal){
+   const meal=homeItems('meals').find(m=>m.id===b.dataset.plannedMeal);
+   if(meal){
+    const list=allRecipes();let idx=Number(meal.recipeId);
+    if(!list[idx]||list[idx].name!==meal.name){const found=list.findIndex(x=>x.name===meal.name);if(found!==-1)idx=found;}
+    openRecipe(idx,meal.due,meal);
+   }
+   return;
+  }
+  if(b.dataset.stock){const item=homeItems('groceries').find(g=>g.id===b.dataset.stock);try{await homeChange('pantry',{...item,id:await stableUUID('stock|'+item.id),kind:'pantry',done:false});await homeChange('groceries',item,true);}catch{}return;}
+  if(b.dataset.revoke){if(!confirm('Remove access for '+b.dataset.revoke+'?'))return;try{await post('/api/google/share',{calendar:shareCalendar.id,email:b.dataset.revoke,role:'none'});await loadSharing();}catch(error){$('#shareError').textContent=error.message;}}
+ });
 $('#spouseShare').onchange=async e=>{const email=state.partner||settings.spouse;if(!email)return;e.target.disabled=true;try{await post('/api/google/share',{calendar:shareCalendar.id,email,role:e.target.checked?'reader':'none'});await loadSharing();}catch(error){e.target.checked=!e.target.checked;$('#shareError').textContent=error.message;e.target.disabled=false;}};
 $('#taskFilter').onchange=renderHome;
 $('#recipeServings').oninput=renderRecipe;
 $('#planRecipe').onclick=async()=>{const due=$('#recipeDate').value;if(!due)return toast('Choose a meal date.');const servings=Number($('#recipeServings').value);if(!Number.isFinite(servings)||servings<1||servings>20)return toast('Choose 1–20 servings.');$('#planRecipe').disabled=true;try{await homeChange('meals',{...state.editMeal,id:state.editMeal?.id||crypto.randomUUID(),kind:'meals',name:recipes[activeRecipe].name,recipeId:activeRecipe,servings,due,done:false});$('#recipeDialog').close();toast('Meal planned');}catch{}finally{$('#planRecipe').disabled=false;}};
+$('#planRecipe').onclick=async()=>{
+ const due=$('#recipeDate').value;if(!due)return toast('Choose a meal date.');
+ const servings=Number($('#recipeServings').value);if(!Number.isFinite(servings)||servings<1||servings>20)return toast('Choose 1–20 servings.');
+ const r=allRecipes()[activeRecipe];if(!r)return toast('Recipe not found.');
+ $('#planRecipe').disabled=true;try{await homeChange('meals',{...state.editMeal,id:state.editMeal?.id||crypto.randomUUID(),kind:'meals',name:r.name,recipeId:activeRecipe,servings,due,done:false});$('#recipeDialog').close();toast('Meal planned');}catch{}finally{$('#planRecipe').disabled=false;}
+};
 $('#addIngredients').onclick=async()=>{$('#addIngredients').disabled=true;try{await addShoppingFor([{recipeId:activeRecipe,servings:Number($('#recipeServings').value)||2}]);$('#recipeDialog').close();}catch(e){toast(e.message);}finally{$('#addIngredients').disabled=false;}};
 $('#buildShopping').onclick=async()=>{$('#buildShopping').disabled=true;try{const from=dateKey(state.mealWeek),to=dateKey(addDays(state.mealWeek,7));await addShoppingFor(homeItems('meals').filter(m=>m.due>=from&&m.due<to));}catch(e){toast(e.message);}finally{$('#buildShopping').disabled=false;}};
 $('#mealWeekPrev').onclick=()=>{state.mealWeek=addDays(state.mealWeek,-7);renderMealWeek();};$('#mealWeekNext').onclick=()=>{state.mealWeek=addDays(state.mealWeek,7);renderMealWeek();};
 $('#pantryForm').onsubmit=async e=>{e.preventDefault();const data=new FormData(e.target);const button=e.target.querySelector('button');button.disabled=true;try{await homeChange('pantry',{id:crypto.randomUUID(),name:data.get('name').trim(),amount:Number(data.get('amount'))||0,unit:data.get('unit'),done:false});e.target.reset();}catch{}finally{button.disabled=false;}};
+
+let editingCustomRecipeId=null;
+function addIngredientRow(amount='',unit='each',name=''){
+ const div=document.createElement('div');div.className='ingredient-row';
+ div.innerHTML=`<input type="number" class="ing-amount" min="0.01" max="10000" step="any" placeholder="Amt" value="${esc(String(amount))}" required><select class="ing-unit">${['each','cup','tbsp','tsp','g','oz','can','clove','fillet','pinch'].map(u=>`<option value="${u}" ${u===unit?'selected':''}>${u}</option>`).join('')}</select><input type="text" class="ing-name" placeholder="Ingredient (e.g. olive oil)" maxlength="100" value="${esc(name)}" required><button type="button" class="icon remove-ing-btn" aria-label="Remove ingredient">×</button>`;
+ div.querySelector('.remove-ing-btn').onclick=()=>{
+  if($('#customRecipeIngredientsList').children.length>1)div.remove();
+  else toast('A recipe needs at least one ingredient.');
+ };
+ $('#customRecipeIngredientsList').appendChild(div);
+}
+function openCustomRecipeModal(recipe=null){
+ editingCustomRecipeId=recipe?.id||null;
+ $('#customRecipeHeading').textContent=recipe?'Edit recipe':'Add your own recipe';
+ $('#customRecipeName').value=recipe?.name||'';
+ $('#customRecipeMinutes').value=recipe?.minutes||30;
+ $('#customRecipeServings').value=recipe?.servings||2;
+ $('#customRecipeSteps').value=recipe?.steps?recipe.steps.join('\n'):'';
+ $('#customRecipeError').textContent='';
+ $('#customRecipeIngredientsList').innerHTML='';
+ if(recipe?.portions?.length){
+  for(const p of recipe.portions)addIngredientRow(p.amount,p.unit,p.name);
+ } else {
+  addIngredientRow(1,'each','');
+  addIngredientRow(1,'cup','');
+ }
+ $('#customRecipeDialog').showModal();
+}
+$('#addRecipeBtn').onclick=()=>openCustomRecipeModal();
+$('#addIngredientRowBtn').onclick=()=>addIngredientRow(1,'each','');
+$('#customRecipeForm').onsubmit=e=>{
+ e.preventDefault();$('#customRecipeError').textContent='';
+ const portions=[];
+ for(const row of $$('#customRecipeIngredientsList .ingredient-row')){
+  const amount=Number(row.querySelector('.ing-amount').value);
+  const unit=row.querySelector('.ing-unit').value;
+  const name=row.querySelector('.ing-name').value.trim();
+  if(name&&amount>0)portions.push({name,amount,unit});
+ }
+ try{
+  const recipeData={
+   id:editingCustomRecipeId||undefined,
+   name:$('#customRecipeName').value.trim(),
+   minutes:$('#customRecipeMinutes').value,
+   servings:$('#customRecipeServings').value,
+   portions,
+   steps:$('#customRecipeSteps').value
+  };
+  const normalized=normalizeCustomRecipe(recipeData);
+  if(editingCustomRecipeId){
+   state.customRecipes=state.customRecipes.map(r=>r.id===editingCustomRecipeId?normalized:r);
+  } else {
+   state.customRecipes.push(normalized);
+  }
+  write('hearth-custom-recipes',state.customRecipes);
+  $('#customRecipeDialog').close();
+  renderHome();
+  toast(editingCustomRecipeId?'Recipe updated':'Recipe added');
+ }catch(err){
+  $('#customRecipeError').textContent=err.message;
+ }
+};
+$('#deleteRecipeBtn').onclick=()=>{
+ const list=allRecipes(),r=list[activeRecipe];
+ if(!r||!r.custom)return;
+ if(!confirm('Delete “'+r.name+'”?'))return;
+ state.customRecipes=state.customRecipes.filter(x=>x.id!==r.id&&x.name!==r.name);
+ write('hearth-custom-recipes',state.customRecipes);
+ $('#recipeDialog').close();
+ renderHome();
+ toast('Recipe deleted');
+};
+$('#editRecipeBtn').onclick=()=>{
+ const list=allRecipes(),r=list[activeRecipe];
+ if(!r||!r.custom)return;
+ $('#recipeDialog').close();
+ openCustomRecipeModal(r);
+};
 // Drag uses the same minute/pixel coordinates as the grid, snapped to 15 minutes.
 document.addEventListener('pointerdown',e=>{
  const block=e.target.closest('.draggable-event');if(!block||e.button!==0)return;
