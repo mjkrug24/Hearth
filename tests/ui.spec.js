@@ -98,6 +98,27 @@ test('Read-only events cannot be edited or deleted',async({page})=>{
 test('A resync replaces changed Google events without deleting remote events',async({page})=>{
  await setup(page);const deletes=[];page.on('request',r=>{if(r.method()==='DELETE')deletes.push(r.url());});await page.route('**/api/google/events?*',r=>r.fulfill({json:{calendars,events:[{...work,title:'Changed remotely'}]}}));await page.click('#connectBtn');await expect(page.locator('[data-event]')).toHaveCount(1);await expect(page.locator('[data-event]')).toContainText('Changed remotely');expect(deletes).toEqual([]);
 });
+test('Calendar color swatch opens palette and updates calendar and event colors',async({page})=>{
+ await setup(page);
+ const swatch=page.locator('[data-color-for="mine"]');
+ await expect(swatch).toBeVisible();
+ await swatch.click();
+ const popover=page.locator('.color-palette-popover');
+ await expect(popover).toBeVisible();
+ await expect(popover.locator('.palette-dot')).toHaveCount(10);
+ await popover.locator('[data-pick-color="1"]').click();
+ await expect(popover).not.toBeVisible();
+ const lunchEvent=page.locator('[data-event="mine::2"]').first();
+ await expect(lunchEvent).toHaveAttribute('style',/background:\s*#c44536/i);
+ const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('hearth-calendar-colors')));
+ expect(saved.mine).toBe(1);
+ await page.click('#connectBtn');
+ await expect(lunchEvent).toHaveAttribute('style',/background:\s*#c44536/i);
+ await swatch.click();
+ await expect(popover).toBeVisible();
+ await page.keyboard.press('Escape');
+ await expect(popover).not.toBeVisible();
+});
 test('Visual review captures calendar, home and mobile dark mode',async({page})=>{
  await setup(page);await page.selectOption('#viewSelect','week');await page.screenshot({path:'test-results/calendar.png'});
  await page.getByRole('button',{name:'Home',exact:true}).click();await page.screenshot({path:'test-results/home.png'});
