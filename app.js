@@ -7,7 +7,21 @@ import {overlaps,shiftedEvent,expandLocal,mergePending} from './planning.js';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}};
 const write=(key,value)=>{try{localStorage.setItem(key,JSON.stringify(value));}catch{toast('Device storage is full or unavailable.');}};
-const localCalendar={id:'local',name:'On this device',backgroundColor:'#285740',foregroundColor:'#ffffff',accessRole:'owner'};
+const localCalendar={id:'local',name:'On this device',backgroundColor:'#2b6777',foregroundColor:'#ffffff',accessRole:'owner'};
+// Curated calendar palette — warm, distinct, readable on white text in both light and dark modes.
+const calendarPalette=[
+ {bg:'#2b6777',fg:'#ffffff'}, // teal (local / primary)
+ {bg:'#c44536',fg:'#ffffff'}, // warm red
+ {bg:'#7b68a5',fg:'#ffffff'}, // soft purple
+ {bg:'#3a7d44',fg:'#ffffff'}, // forest green
+ {bg:'#d4853a',fg:'#ffffff'}, // amber / burnt orange
+ {bg:'#3872a8',fg:'#ffffff'}, // ocean blue
+ {bg:'#b5566e',fg:'#ffffff'}, // rose
+ {bg:'#5a8a6f',fg:'#ffffff'}, // sage
+ {bg:'#8c6e3f',fg:'#ffffff'}, // warm brown
+ {bg:'#4a7c91',fg:'#ffffff'}, // steel teal
+];
+function colorizeCalendars(calendars){return calendars.map((c,i)=>{const color=calendarPalette[(i+1)%calendarPalette.length];return {...c,backgroundColor:color.bg,foregroundColor:color.fg};});}
 const settings=read('hearth-settings',{theme:read('hearth-dark-mode',false)?'dark':'system',view:'month'});
 const state={date:new Date(),mini:new Date(new Date().getFullYear(),new Date().getMonth(),1),view:settings.view||'month',app:settings.destination||'home',connected:false,configured:false,loading:false,mutating:false,events:[],calendars:[localCalendar],hidden:read('hearth-hidden-calendars',[]),editing:null,home:read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]}),shared:false,homeReady:false,account:'device',members:[],partner:null,verified:false,lastCalendarSync:null,lastHomeSync:null,lastError:'',mealWeek:addDays(new Date(),-((new Date().getDay()+6)%7))};
 const allRecipes=()=>[...recipes,...homeItems('recipes')];
@@ -36,7 +50,7 @@ async function sync(){
   if(!state.connected||state.mutating)return;
   const sequence=++syncSequence;state.loading=true;$('#connectBtn').disabled=true;$('#syncStatus').textContent='Syncing…';notice();
   try{const remote=await api('/api/google/events?'+new URLSearchParams(syncRange()));if(sequence!==syncSequence)return;
-    state.calendars=remote.calendars;state.events=remote.events.map(normalizeEvent);if(state.account==='device')state.account=remote.calendars.find(c=>c.primary)?.id||'device';state.lastCalendarSync=Date.now();state.lastError='';cacheAccount();
+    state.calendars=colorizeCalendars(remote.calendars);state.events=remote.events.map(normalizeEvent);if(state.account==='device')state.account=remote.calendars.find(c=>c.primary)?.id||'device';state.lastCalendarSync=Date.now();state.lastError='';cacheAccount();
     $('#syncStatus').textContent='Synced at '+new Date().toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
     if(remote.warnings?.length){notice(remote.warnings.join(' '));state.lastError=remote.warnings.join(' ');}render();renderDashboard();
   }catch(e){if(sequence!==syncSequence)return;$('#syncStatus').textContent='Sync failed — retry';notice(e.message);if(e.status===401){state.connected=false;$('#connectBtn').textContent='Reconnect';}}
