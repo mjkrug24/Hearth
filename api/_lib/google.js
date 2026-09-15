@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 const cookieName='hearth_google_token';
 const base=()=>process.env.APP_BASE_URL?.replace(/\/$/,'');
-const key=()=>{const secret=process.env.TOKEN_ENCRYPTION_KEY||process.env.GOOGLE_CLIENT_SECRET;if(!secret)throw new Error('Google connection is not configured');return crypto.createHash('sha256').update(secret).digest();};
+const key=()=>{const secret=process.env.TOKEN_ENCRYPTION_KEY;if(!secret)throw new Error('TOKEN_ENCRYPTION_KEY is required to encrypt Google tokens.');return crypto.createHash('sha256').update(secret).digest();};
 export const cookies=req=>Object.fromEntries((req.headers.cookie||'').split(';').filter(Boolean).map(x=>{const i=x.indexOf('=');return [x.slice(0,i).trim(),x.slice(i+1)];}));
 export const appendCookie=(res,cookie)=>{const old=res.getHeader('Set-Cookie')||[];res.setHeader('Set-Cookie',[...(Array.isArray(old)?old:[old]),cookie]);};
 export const cookieOptions=()=>`HttpOnly; ${base()?.startsWith('https:')?'Secure; ':''}SameSite=Lax; Path=/`;
@@ -10,11 +10,11 @@ export function tokens(req){try{const b=Buffer.from(cookies(req)[cookieName]||''
 export function storeTokens(res,value){const compact={access_token:value.access_token,refresh_token:value.refresh_token,expiry:value.expiry,sessionUntil:Date.now()+15552000000};appendCookie(res,`${cookieName}=${seal(compact)}; ${cookieOptions()}; Max-Age=15552000`);}
 export function clearTokens(res){appendCookie(res,`${cookieName}=; ${cookieOptions()}; Max-Age=0`);}
 export const callbackUrl=()=>base()+'/auth/google/callback';
-export const configured=()=>Boolean(process.env.GOOGLE_CLIENT_ID&&process.env.GOOGLE_CLIENT_SECRET&&base());
+export const configured=()=>Boolean(process.env.GOOGLE_CLIENT_ID&&process.env.GOOGLE_CLIENT_SECRET&&process.env.TOKEN_ENCRYPTION_KEY&&base());
 export function failure(message,status=400){return Object.assign(new Error(message),{status});}
 export function guard(req,res){
  res.setHeader('Cache-Control','private, no-store');res.setHeader('Vary','Cookie');
- if(!['GET','HEAD'].includes(req.method)){const origin=req.headers.origin;if(origin&&origin!==base())throw failure('This request must come from Hearth.',403);if(req.headers['sec-fetch-site']==='cross-site')throw failure('Cross-site request rejected.',403);}
+ if(!['GET','HEAD'].includes(req.method)){const origin=req.headers.origin,site=req.headers['sec-fetch-site'];if(site==='cross-site'||site==='same-site')throw failure('Cross-site request rejected.',403);if(origin?origin!==base():site!=='same-origin')throw failure('This request must come from Hearth.',403);}
 }
 export async function access(req,res){
  if(req.googleAccess)return req.googleAccess;
@@ -42,4 +42,4 @@ export function eventToGoogle(e){
  }
  return body;
 }
-export const eventFromGoogle=(e,calendar)=>({id:calendar+'::'+e.id,googleEventId:e.id,googleCalendarId:calendar,title:e.summary||'(No title)',date:e.start.date||e.start.dateTime.slice(0,10),endDate:e.end.date||e.end.dateTime.slice(0,10),time:e.start.dateTime?.slice(11,16)||'',end:e.end.dateTime?.slice(11,16)||'',startDateTime:e.start.dateTime||null,endDateTime:e.end.dateTime||null,allDay:!!e.start.date,location:e.location||'',notes:e.description||'',etag:e.etag,updated:e.updated,htmlLink:e.htmlLink,recurringEventId:e.recurringEventId,eventType:e.eventType||'default',reminder:e.reminders?.useDefault?'default':!e.reminders?.overrides?.length?'none':e.reminders.overrides.length===1&&e.reminders.overrides[0].method==='popup'&&[10,30,60].includes(e.reminders.overrides[0].minutes)?String(e.reminders.overrides[0].minutes):'preserve'});
+export const eventFromGoogle=(e,calendar)=>({id:calendar+'::'+e.id,googleEventId:e.id,googleCalendarId:calendar,title:e.summary||'(No title)',date:e.start.date||e.start.dateTime?.slice(0,10)||'',endDate:e.end.date||e.end.dateTime?.slice(0,10)||'',time:e.start.dateTime?.slice(11,16)||'',end:e.end.dateTime?.slice(11,16)||'',startDateTime:e.start.dateTime||null,endDateTime:e.end.dateTime||null,allDay:!!e.start.date,location:e.location||'',notes:e.description||'',etag:e.etag,updated:e.updated,htmlLink:e.htmlLink,recurringEventId:e.recurringEventId,eventType:e.eventType||'default',reminder:e.reminders?.useDefault?'default':!e.reminders?.overrides?.length?'none':e.reminders.overrides.length===1&&e.reminders.overrides[0].method==='popup'&&[10,30,60].includes(e.reminders.overrides[0].minutes)?String(e.reminders.overrides[0].minutes):'preserve'});

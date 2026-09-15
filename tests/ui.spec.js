@@ -33,7 +33,7 @@ test('Navigation advances the correct period and six-row months are complete',as
 });
 test('Household workflows and recipe details work; theme persists',async({page})=>{
  await setup(page,false);await page.getByRole('button',{name:'Home',exact:true}).click();
- await page.getByLabel('Task name',{exact:true}).fill('Take out recycling');await page.locator('#taskForm button').click();await expect(page.locator('#taskList')).toContainText('Take out recycling');await page.getByLabel('Complete Take out recycling').check();
+ await page.getByLabel('Task name',{exact:true}).fill('Take out recycling');await page.locator('#taskForm button').click();await expect(page.locator('#taskList')).toContainText('Take out recycling');await page.selectOption('#taskFilter','all');await page.getByLabel('Complete Take out recycling').check();
  await page.getByLabel('Grocery item',{exact:true}).fill('eggs');await page.locator('#groceryForm button').click();await page.getByRole('button',{name:/Vegetable omelet/}).click();await expect(page.locator('#recipeDetails')).toContainText('Whisk 4 eggs');await page.click('#addIngredients');await expect(page.locator('#groceryList')).toContainText('spinach');
  await page.click('#themeBtn');const theme=await page.locator('html').getAttribute('data-theme');await page.reload();await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
 });

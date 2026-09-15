@@ -9,7 +9,7 @@ export default async function handler(req,res){
    const events=[],warnings=[];
    // Bounded batches avoid an unbounded burst for accounts with many subscriptions.
    for(let i=0;i<calendars.length;i+=4)await Promise.all(calendars.slice(i,i+4).map(async c=>{
-    try{const items=await allPages(req,res,`/calendars/${encodeURIComponent(c.id)}/events?`+new URLSearchParams({singleEvents:'true',orderBy:'startTime',timeMin:from,timeMax:to,maxResults:'2500'}));events.push(...items.filter(e=>e.status!=='cancelled'&&e.start&&e.end).map(e=>eventFromGoogle(e,c.id)));}
+    try{const items=await allPages(req,res,`/calendars/${encodeURIComponent(c.id)}/events?`+new URLSearchParams({singleEvents:'true',orderBy:'startTime',timeMin:from,timeMax:to,maxResults:'2500'}));events.push(...items.filter(e=>e.status!=='cancelled'&&(e.start?.date||e.start?.dateTime)&&(e.end?.date||e.end?.dateTime)).map(e=>eventFromGoogle(e,c.id)));}
     catch(error){if(error.status===401)throw error;warnings.push(c.name+': '+error.message);}
    }));
    return json(res,200,{events,calendars,warnings});

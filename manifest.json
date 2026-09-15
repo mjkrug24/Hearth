@@ -1,0 +1,13 @@
+{
+  "name": "Hearth",
+  "short_name": "Hearth",
+  "description": "Shared household calendar, tasks, groceries, and meal planning.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafd",
+  "theme_color": "#1967d2",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

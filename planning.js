@@ -22,7 +22,7 @@ export function expandLocal(events,from,to){
   const count=Math.min(365,Math.max(1,e.repeatCount||12)),anchor=parseDay(e.date),last=parseDay(to),daySpan=Math.round((parseDay(e.endDate)-anchor)/86400000);
   let ordinal=0;
   for(let cursor=new Date(anchor);cursor<=last&&ordinal<count;cursor=addDays(cursor,1)){
-   const days=Math.round((cursor-anchor)/86400000),match=e.repeat==='daily'||e.repeat==='weekdays'&&![0,6].includes(cursor.getDay())||e.repeat==='weekly'&&days%7===0||e.repeat==='monthly'&&cursor.getDate()===anchor.getDate();
+   const days=Math.round((cursor-anchor)/86400000),match=e.repeat==='daily'||e.repeat==='weekdays'&&![0,6].includes(cursor.getDay())||e.repeat==='weekly'&&days%7===0||e.repeat==='monthly'&&(cursor.getDate()===anchor.getDate()||cursor.getDate()===new Date(cursor.getFullYear(),cursor.getMonth()+1,0).getDate()&&anchor.getDate()>cursor.getDate());
    if(!match)continue;ordinal++;const key=dateKey(cursor);if(key<from||e.excludedDates?.includes(key))continue;
    result.push({...e,id:e.id+'@'+key,localParentId:e.id,occurrenceDate:key,repeat:'none',date:key,endDate:dateKey(addDays(cursor,daySpan)),startDateTime:null,endDateTime:null});
   }

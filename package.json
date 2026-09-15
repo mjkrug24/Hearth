@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test tests/model.test.js tests/api.test.js",
+    "test": "node --test tests/model.test.js tests/api.test.js tests/planning.test.js tests/offline.test.js",
     "test:browser": "playwright test"
   },
   "devDependencies": {

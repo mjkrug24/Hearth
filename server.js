@@ -13,8 +13,11 @@ const routes={
 };
 // Explicit public allowlist prevents .env, tokens, source APIs, and Git data being served.
 const publicFiles=['index.html','styles.css','app.js','calendar-model.js','recipes.js','planning.js','offline.js','sw.js'];
+const securityHeaders={"Content-Security-Policy":"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY'};
 http.createServer(async(req,res)=>{
  res.status=code=>{res.statusCode=code;return res;};res.json=data=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));};res.redirect=url=>{res.statusCode=302;res.setHeader('Location',url);res.end();};
+ for(const [name,value] of Object.entries(securityHeaders))res.setHeader(name,value);
+ if((req.headers['x-forwarded-proto']||'')==='https')res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
  try{
   const url=new URL(req.url,'http://localhost');req.query=Object.fromEntries(url.searchParams);
   let route=routes[url.pathname];if(/^\/api\/google\/events\/[^/]+$/.test(url.pathname)){route='./api/google/events/[id].js';req.query.id=decodeURIComponent(url.pathname.split('/').pop());}
