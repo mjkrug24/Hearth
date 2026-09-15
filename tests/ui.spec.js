@@ -195,7 +195,7 @@ test('Booknook-style login overlay appears on first visit, supports sign in, gue
  const overlay = page.locator('#authOverlay');
  await expect(overlay).toBeVisible();
  await expect(page.locator('#authTitle')).toHaveText('Sign in to continue');
- await expect(page.locator('#authServerUrl')).toHaveValue(/ebook\.krugcloud\.com|localhost/);
+ await expect(page.locator('#authServerUrl')).toHaveValue('https://ebook.krugcloud.com');
 
  // Toggle between sign in and create account
  await page.click('#authToggleBtn');

@@ -44,9 +44,9 @@ async function api(url,options={}){const r=await fetch(url,{cache:'no-store',cre
 const post=(url,body,method='POST')=>api(url,{method,body:JSON.stringify(body)});
 function notice(message=''){$('#calendarNotice').textContent=message;$('#calendarNotice').classList.toggle('hidden',!message);}
 // PocketBase Cross-Device Sync
-let settingsSyncTimeout=null,receivingRemoteSettings=false;
+let settingsSyncTimeout=null;
 function syncSettingsToPocketBase(){
- if(!pb.isAuthenticated()||receivingRemoteSettings)return;
+ if(!pb.isAuthenticated())return;
  clearTimeout(settingsSyncTimeout);
  settingsSyncTimeout=setTimeout(async()=>{
   try{
@@ -65,20 +65,15 @@ function syncSettingsToPocketBase(){
 
 function applyPocketBaseSettings(data){
  if(!data||typeof data!=='object')return;
- receivingRemoteSettings=true;
- try{
-  let changed=false;
-  if(data.theme&&data.theme!==settings.theme){settings.theme=data.theme;theme();changed=true;}
-  if(data.view&&data.view!==settings.view){settings.view=data.view;state.view=data.view;if($('#defaultView'))$('#defaultView').value=data.view;if($('#viewSelect'))$('#viewSelect').value=data.view;changed=true;}
-  if(data.destination&&data.destination!==state.app&&householdUI?.navigate){householdUI.navigate(data.destination,false);changed=true;}
-  if(data.spouse!==undefined&&data.spouse!==settings.spouse){settings.spouse=data.spouse;if($('#spouseSetting'))$('#spouseSetting').value=data.spouse;changed=true;}
-  if(data.calendarColors&&typeof data.calendarColors==='object'){write(calColorKey,data.calendarColors);applyLocalColor();state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));renderCalendars();changed=true;}
-  if(Array.isArray(data.hiddenCalendars)){state.hidden=data.hiddenCalendars;write('hearth-hidden-calendars',state.hidden);renderCalendars();changed=true;}
-  if(Array.isArray(data.favorites)){write('hearth-favorites-'+state.account,data.favorites);write('hearth-favorites-device',data.favorites);changed=true;}
-  if(changed){write('hearth-settings',settings);render();renderDashboard();}
- }finally{
-  receivingRemoteSettings=false;
- }
+ let changed=false;
+ if(data.theme&&data.theme!==settings.theme){settings.theme=data.theme;theme();changed=true;}
+ if(data.view&&data.view!==settings.view){settings.view=data.view;state.view=data.view;if($('#defaultView'))$('#defaultView').value=data.view;if($('#viewSelect'))$('#viewSelect').value=data.view;changed=true;}
+ if(data.destination&&data.destination!==state.app&&householdUI?.navigate){householdUI.navigate(data.destination,false);changed=true;}
+ if(data.spouse!==undefined&&data.spouse!==settings.spouse){settings.spouse=data.spouse;if($('#spouseSetting'))$('#spouseSetting').value=data.spouse;changed=true;}
+ if(data.calendarColors&&typeof data.calendarColors==='object'){write(calColorKey,data.calendarColors);applyLocalColor();state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));renderCalendars();changed=true;}
+ if(Array.isArray(data.hiddenCalendars)){state.hidden=data.hiddenCalendars;write('hearth-hidden-calendars',state.hidden);renderCalendars();changed=true;}
+ if(Array.isArray(data.favorites)){write('hearth-favorites-'+state.account,data.favorites);write('hearth-favorites-device',data.favorites);changed=true;}
+ if(changed){write('hearth-settings',settings);render();renderDashboard();}
 }
 
 async function syncPocketBaseItem(item,remove=false){
@@ -86,27 +81,15 @@ async function syncPocketBaseItem(item,remove=false){
  try{
   const clientId=item.id;
   if(remove){
-   if(item.pb_id){
-    await pb.delete('hearth_items',item.pb_id).catch(()=>{});
-   }else{
-    const records=await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]);
-    for(const r of records)await pb.delete('hearth_items',r.id).catch(()=>{});
-   }
+   const records=await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]);
+   for(const r of records)await pb.delete('hearth_items',r.id).catch(()=>{});
   }else{
    const details={...(item.details||{})};
    for(const k of ['amount','servings','unit','aisle','recipeId','recipeSnapshot','repeat','priority','expires','rotation','skipped','nextId','scheduledDue','seriesAnchor','custom','ingredients','portions','steps','minutes'])if(item[k]!==undefined)details[k]=item[k];
    const record={client_id:clientId,kind:item.kind,name:item.name||'',done:!!item.done,due:item.due||'',quantity:item.quantity||'',details,assignedTo:item.assignedTo||'',user:pb.user()?.id||null};
-   if(item.pb_id){
-    await pb.update('hearth_items',item.pb_id,record).catch(async()=>{
-     const existing=(await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
-     if(existing){item.pb_id=existing.id;await pb.update('hearth_items',existing.id,record);}
-     else{const created=await pb.create('hearth_items',record);item.pb_id=created.id;}
-    });
-   }else{
-    const existing=(await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
-    if(existing){item.pb_id=existing.id;await pb.update('hearth_items',existing.id,record);}
-    else{const created=await pb.create('hearth_items',record);item.pb_id=created.id;}
-   }
+   const existing=(await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
+   if(existing)await pb.update('hearth_items',existing.id,record);
+   else await pb.create('hearth_items',record);
   }
  }catch(err){console.warn('PocketBase item sync error:',err.message);}
 }
@@ -121,25 +104,13 @@ async function syncPocketBaseEvent(event,remove=false){
  try{
   const clientId=event.id;
   if(remove){
-   if(event.pb_id){
-    await pb.delete('hearth_events',event.pb_id).catch(()=>{});
-   }else{
-    const records=await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]);
-    for(const r of records)await pb.delete('hearth_events',r.id).catch(()=>{});
-   }
+   const records=await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]);
+   for(const r of records)await pb.delete('hearth_events',r.id).catch(()=>{});
   }else{
    const record={client_id:clientId,title:event.title||'',date:event.date||'',endDate:event.endDate||event.date||'',time:event.time||'',end:event.end||'',allDay:!!event.allDay,location:event.location||'',notes:event.notes||'',reminder:event.reminder||'',repeat:event.repeat||'none',repeatCount:Number(event.repeatCount)||0,timeZone:event.timeZone||'',user:pb.user()?.id||null};
-   if(event.pb_id){
-    await pb.update('hearth_events',event.pb_id,record).catch(async()=>{
-     const existing=(await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
-     if(existing){event.pb_id=existing.id;await pb.update('hearth_events',existing.id,record);}
-     else{const created=await pb.create('hearth_events',record);event.pb_id=created.id;}
-    });
-   }else{
-    const existing=(await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
-    if(existing){event.pb_id=existing.id;await pb.update('hearth_events',existing.id,record);}
-    else{const created=await pb.create('hearth_events',record);event.pb_id=created.id;}
-   }
+   const existing=(await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
+   if(existing)await pb.update('hearth_events',existing.id,record);
+   else await pb.create('hearth_events',record);
   }
  }catch(err){console.warn('PocketBase event sync error:',err.message);}
 }
@@ -235,26 +206,15 @@ async function uploadDeviceDataToPocketBase(){
 function updatePocketBaseUI(){
  const isAuth=pb.isAuthenticated();
  const disconnected=$('#pbDisconnectedState'),connected=$('#pbConnectedState');
- if(disconnected)disconnected.classList.toggle('hidden',isAuth);
- if(connected)connected.classList.toggle('hidden',!isAuth);
- const pbBtn=$('#pbAccountBtn'),pbText=$('#pbAccountText');
- if(pbBtn&&pbText){
-  pbBtn.classList.toggle('logged-in',isAuth);
-  if(isAuth){
-   const user=pb.user();
-   pbText.textContent=user?.email?user.email.split('@')[0]:'Account';
-   pbBtn.title=`Signed in as ${user?.email||'PocketBase'}. Click to sign out.`;
-  }else{
-   pbText.textContent='Sign In';
-   pbBtn.title='Sign in to sync across devices';
-  }
- }
+ if(!disconnected||!connected)return;
+ disconnected.classList.toggle('hidden',isAuth);
+ connected.classList.toggle('hidden',!isAuth);
  if(isAuth){
   const user=pb.user();
-  if($('#pbUserEmail'))$('#pbUserEmail').textContent=user?.email||'Connected to PocketBase';
-  if($('#pbServerUrl'))$('#pbServerUrl').textContent=pb.getUrl();
+  $('#pbUserEmail').textContent=user?.email||'Connected to PocketBase';
+  $('#pbServerUrl').textContent=pb.getUrl();
  }else{
-  if($('#pbUrlInput'))$('#pbUrlInput').value=pb.getUrl();
+  $('#pbUrlInput').value=pb.getUrl();
  }
 }
 function calendarFor(e){return state.calendars.find(c=>c.id===(e.googleCalendarId||'local'))||localCalendar;}
@@ -375,14 +335,14 @@ document.addEventListener('click',async e=>{
  if(b?.dataset.day){state.date=parseDay(b.dataset.day);state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();return;}
  if(b?.dataset.share){shareCalendar=state.calendars.find(c=>c.id===b.dataset.share);$('#shareName').textContent=shareCalendar.name;$('#shareEmail').value=state.partner||settings.spouse||'';$('#shareRole').value='reader';$('#shareError').textContent='';$('#shareDialog').showModal();loadSharing();return;}
  if(b?.dataset.colorFor){const calId=b.dataset.colorFor;const existing=$('.color-palette-popover');const wasSame=existing&&existing.dataset.calId===calId;existing?.remove();if(wasSame)return;const pop=document.createElement('div');pop.className='color-palette-popover';pop.dataset.calId=calId;pop.innerHTML=calendarPalette.map((p,i)=>`<button type="button" class="palette-dot${safeColor((state.calendars.find(c=>c.id===calId)||localCalendar).backgroundColor)===p.bg?' selected':''}" data-pick-color="${i}" data-pick-cal="${esc(calId)}" style="background:${p.bg}" aria-label="Color ${i+1}" title="Select color"></button>`).join('');b.closest('.calendar-row').appendChild(pop);return;}
- if(b?.dataset.pickColor!=null){const calId=b.dataset.pickCal,pi=Number(b.dataset.pickColor);const saved=read(calColorKey,{});saved[calId]=pi;write(calColorKey,saved);$('.color-palette-popover')?.remove();if(calId==='local'){applyLocalColor();const localInState=state.calendars.find(c=>c.id==='local');if(localInState){localInState.backgroundColor=localCalendar.backgroundColor;localInState.foregroundColor=localCalendar.foregroundColor;}}else{state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));}renderCalendars();render();renderDashboard();syncSettingsToPocketBase();return;}
+ if(b?.dataset.pickColor!=null){const calId=b.dataset.pickCal,pi=Number(b.dataset.pickColor);const saved=read(calColorKey,{});saved[calId]=pi;write(calColorKey,saved);$('.color-palette-popover')?.remove();if(calId==='local'){applyLocalColor();const localInState=state.calendars.find(c=>c.id==='local');if(localInState){localInState.backgroundColor=localCalendar.backgroundColor;localInState.foregroundColor=localCalendar.foregroundColor;}}else{state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));}renderCalendars();render();renderDashboard();return;}
  if(b?.dataset.recipe){openRecipe(b.dataset.recipe);return;}
  if(b?.dataset.deleteItem||b?.dataset.editItem){const kind=b.dataset.kind,item=homeItems(kind).find(x=>x.id===(b.dataset.deleteItem||b.dataset.editItem));if(!item)return;if(b.dataset.deleteItem){try{await homeChange(kind,item,true);}catch{}}else{editingItem={...item,kind};$('#itemName').value=item.name;$('#itemDue').value=item.due||'';$('#itemQuantity').value=item.quantity||'';$('#taskFields').classList.toggle('hidden',kind!=='tasks');$('#inventoryFields').classList.toggle('hidden',!['pantry','groceries'].includes(kind));$('#itemAssignee').innerHTML='<option value="">Anyone</option>'+[...new Set([state.account,...state.members,settings.spouse].filter(Boolean))].map(email=>`<option value="${esc(email)}">${esc(person(email))}</option>`).join('');$('#itemAssignee').value=item.assignedTo||'';$('#itemPriority').value=item.priority||'normal';$('#itemRepeat').value=item.repeat||'none';$('#itemAmount').value=item.amount||'';$('#itemUnit').value=item.unit||'each';householdUI.prepareItem(item);$('#itemError').textContent='';$('#itemDialog').showModal();}return;}
  const day=e.target.closest('[data-new-day]');if(day){openEvent(null,day.dataset.newDay);return;}
  const timeline=e.target.closest('[data-time-day]');if(timeline){const min=Math.max(0,Math.min(1425,Math.floor((e.clientY-timeline.getBoundingClientRect().top)/15)*15));openEvent(null,timeline.dataset.timeDay,String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0'));}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')$('.color-palette-popover')?.remove();});
-document.addEventListener('change',async e=>{if(e.target.dataset.calendar){const id=e.target.dataset.calendar;state.hidden=state.hidden.filter(x=>x!==id);if(!e.target.checked)state.hidden.push(id);write('hearth-hidden-calendars',state.hidden);render();renderDashboard();syncSettingsToPocketBase();}if(e.target.dataset.check){const kind=e.target.dataset.kind,item=homeItems(kind).find(x=>x.id===e.target.dataset.check);try{await completeItem(kind,item,e.target.checked);}catch(error){toast(error.message);}}});
+document.addEventListener('change',async e=>{if(e.target.dataset.calendar){const id=e.target.dataset.calendar;state.hidden=state.hidden.filter(x=>x!==id);if(!e.target.checked)state.hidden.push(id);write('hearth-hidden-calendars',state.hidden);render();renderDashboard();}if(e.target.dataset.check){const kind=e.target.dataset.kind,item=homeItems(kind).find(x=>x.id===e.target.dataset.check);try{await completeItem(kind,item,e.target.checked);}catch(error){toast(error.message);}}});
 $('#todayBtn').onclick=()=>{state.date=new Date();state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();};
 $('#prevBtn').onclick=()=>navigate(-1);$('#nextBtn').onclick=()=>navigate(1);
 $('#miniPrev').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.mini.getMonth()-1,1);renderMini();};$('#miniNext').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.mini.getMonth()+1,1);renderMini();};
@@ -391,7 +351,7 @@ $('#searchInput').oninput=render;$('#createBtn').onclick=()=>openEvent();$('#all
 $('#connectBtn').onclick=()=>state.connected?sync():location.assign('/auth/google');$('#signInBtn').onclick=()=>location.assign('/auth/google');
 $('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.shared=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');restoreDeviceHome();state.events=[...state.localEvents];state.calendars=[localCalendar];$('#settingsDialog').close();await initConnection();toast('Disconnected. Pending Google changes stay bound to their original account.');}catch(e){toast(e.message);}};
 $('#themeBtn').onclick=()=>{settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';theme();};$('#themeSelect').onchange=e=>{settings.theme=e.target.value;theme();};matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
-$('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);syncSettingsToPocketBase();};
+$('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);};
 $('#settingsBtn').onclick=$('#accountBtn').onclick=openSettings;
 $('#menuBtn').onclick=()=>document.body.classList.toggle(matchMedia('(max-width:700px)').matches?'sidebar-open':'sidebar-closed');
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea,select,dialog')||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key.toLowerCase()==='t')$('#todayBtn').click();if(e.key.toLowerCase()==='c')openEvent();});
@@ -407,7 +367,6 @@ function enqueue(op){const row=outbox.add(op);state.lastError='';renderSyncDetai
 function applyLocalEvent(item,remove=false){
  if(item.localParentId){state.events=state.events.map(e=>e.id===item.localParentId?{...e,excludedDates:[...new Set([...(e.excludedDates||[]),item.occurrenceDate])]}:e);}
  state.events=state.events.filter(e=>e.id!==item.id);if(!remove)state.events.push(item);saveLocal();
- if(pb.isAuthenticated()&&!item.googleCalendarId)syncPocketBaseEvent(item,remove);
 }
 async function persistEvent(item,before){
  const waiting=outbox.forAccount(state.account).find(op=>op.type==='event'&&op.action==='upsert'&&op.item.id===item.id);
@@ -457,12 +416,12 @@ function decorateTimedEvents(){for(const el of $$('.timed-event')){const event=d
 $('.sync-card').insertAdjacentHTML('beforeend','<button class="text-button" id="syncDetailsButton">Sync details</button>');
 $('#settingsDialog').insertAdjacentHTML('beforeend','<label>Spouse Google email<input id="spouseSetting" type="email" placeholder="your-spouse@gmail.com"></label><p class="muted">Used by your calendar sharing switch. Household membership is verified by the server configuration.</p>');
 $('#spouseSetting').value=settings.spouse||state.partner||'';
-$('#spouseSetting').onchange=e=>{if(e.target.validity.valid){settings.spouse=e.target.value.trim().toLowerCase();write('hearth-settings',settings);syncSettingsToPocketBase();}};
+$('#spouseSetting').onchange=e=>{if(e.target.validity.valid){settings.spouse=e.target.value.trim().toLowerCase();write('hearth-settings',settings);}};
 $('#syncDetailsButton').onclick=()=>{renderSyncDetails();$('#syncDialog').showModal();};
 $('#retryQueue').onclick=async()=>{for(const op of outbox.rows.filter(o=>[state.account,'device'].includes(o.account))){if(op.status==='failed'&&(op.type==='batch'||op.error?.includes('changed in Google')))continue;op.status='pending';op.error='';}outbox.persist();await flushQueue();};
 $('#refreshAll').onclick=async()=>{await sync();await loadHome();renderSyncDetails();};
 $('#undoDelete').onclick=()=>undoOperation($('#undoDelete').dataset.id);
-function undoOperation(id){const op=outbox.rows.find(x=>x.id===id);if(!op||op.status==='sending')return toast('This change is already being sent.');outbox.remove(id);render();renderHome();if(pb.isAuthenticated()&&op.action==='delete'){if(op.type==='event')syncPocketBaseEvent(op.item,false);else if(op.type==='home')syncPocketBaseItem(op.item,false);}toast(op.action==='delete'?'Deletion undone':'Pending change discarded');}
+function undoOperation(id){const op=outbox.rows.find(x=>x.id===id);if(!op||op.status==='sending')return toast('This change is already being sent.');outbox.remove(id);render();renderHome();toast(op.action==='delete'?'Deletion undone':'Pending change discarded');}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;
  if(b.dataset.discard){undoOperation(b.dataset.discard);return;}
  if(b.dataset.planDay){state.planDay=b.dataset.planDay;householdUI.openPicker(state.planDay);return;}
@@ -564,201 +523,6 @@ async function loadSharing(){
  catch(e){$('#shareError').textContent=e.message;$('#spouseStatus').textContent='Sharing status unavailable';}
 }
 
-$('#pbSignInBtn').onclick=async()=>{
- const url=$('#pbUrlInput').value.trim();
- const email=$('#pbEmailInput').value.trim();
- const password=$('#pbPasswordInput').value;
- $('#pbError').textContent='';
- if(!url)return $('#pbError').textContent='Please enter your PocketBase server URL.';
- if(!email||!password)return $('#pbError').textContent='Please enter your email and password.';
- $('#pbSignInBtn').disabled=true;
- try{
-  pb.setUrl(url);
-  await pb.login(email,password);
-  $('#pbPasswordInput').value='';
-  updatePocketBaseUI();
-  setupPocketBaseSubscriptions();
-  await loadPocketBaseData();
-  toast('Connected to PocketBase');
- }catch(err){
-  const msg=err?.message||'';
-  $('#pbError').textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
-    ?'Could not reach server. Verify your PocketBase URL (e.g. https://ebook.krugcloud.com).'
-    :(msg||'Failed to sign in to PocketBase.');
- }finally{$('#pbSignInBtn').disabled=false;}
-};
-
-$('#pbSignUpBtn').onclick=async()=>{
- const url=$('#pbUrlInput').value.trim();
- const email=$('#pbEmailInput').value.trim();
- const password=$('#pbPasswordInput').value;
- $('#pbError').textContent='';
- if(!url)return $('#pbError').textContent='Please enter your PocketBase server URL.';
- if(!email||!password)return $('#pbError').textContent='Please enter an email and password to create an account.';
- if(password.length<8)return $('#pbError').textContent='Password must be at least 8 characters.';
- $('#pbSignUpBtn').disabled=true;
- try{
-  pb.setUrl(url);
-  await pb.register(email,password);
-  $('#pbPasswordInput').value='';
-  updatePocketBaseUI();
-  setupPocketBaseSubscriptions();
-  await loadPocketBaseData();
-  toast('PocketBase account created & connected');
- }catch(err){
-  const msg=err?.message||'';
-  $('#pbError').textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
-    ?'Could not reach server. Verify your PocketBase URL (e.g. https://ebook.krugcloud.com).'
-    :(msg||'Failed to register with PocketBase.');
- }finally{$('#pbSignUpBtn').disabled=false;}
-};
-
-$('#pbDisconnectBtn').onclick=()=>{
- pb.logout();
- localStorage.removeItem('hearth-guest');
- sessionStorage.removeItem('hearth-guest');
- updatePocketBaseUI();
- toast('Disconnected from PocketBase');
- showAuthOverlay();
-};
-
-$('#pbUploadDataBtn').onclick=async()=>{
- $('#pbUploadDataBtn').disabled=true;
- try{
-  toast('Uploading device data to PocketBase…');
-  await uploadDeviceDataToPocketBase();
-  toast('Device data uploaded to PocketBase');
- }catch(err){
-  toast('Failed to upload data: '+err.message);
- }finally{$('#pbUploadDataBtn').disabled=false;}
-};
-
-let authMode='signin';
-
-function showAuthOverlay(){
- const overlay=$('#authOverlay');
- if(!overlay)return;
- overlay.classList.remove('hidden');
- const emailInput=$('#authEmail'),passInput=$('#authPassword'),errorText=$('#authError'),urlInput=$('#authServerUrl');
- if(emailInput)emailInput.value=pb.user()?.email||'';
- if(passInput)passInput.value='';
- if(errorText)errorText.textContent='';
- if(urlInput)urlInput.value=pb.getUrl();
- setAuthMode('signin');
- requestAnimationFrame(()=>emailInput?.focus());
-}
-
-function hideAuthOverlay(){
- const overlay=$('#authOverlay');
- if(overlay)overlay.classList.add('hidden');
-}
-
-function setAuthMode(mode){
- authMode=mode;
- const title=$('#authTitle'),sub=$('#authSubtitle'),submit=$('#authSubmitBtn'),toggle=$('#authToggleBtn');
- if(authMode==='signup'){
-  if(title)title.textContent='Create your account';
-  if(sub)sub.textContent='Create an account to automatically sync your Hearth data across all your devices.';
-  if(submit)submit.textContent='Create Account';
-  if(toggle)toggle.textContent='Already have an account? Sign in';
- }else{
-  if(title)title.textContent='Sign in to continue';
-  if(sub)sub.textContent='Use your account to sync your calendar, meals, recipes, and lists across all your devices.';
-  if(submit)submit.textContent='Sign In';
-  if(toggle)toggle.textContent='Need an account? Create one';
- }
-}
-
-const authToggleBtn=$('#authToggleBtn');
-if(authToggleBtn)authToggleBtn.onclick=()=>{
- setAuthMode(authMode==='signin'?'signup':'signin');
- const err=$('#authError');if(err)err.textContent='';
-};
-
-const authGuestBtn=$('#authGuestBtn');
-if(authGuestBtn)authGuestBtn.onclick=()=>{
- localStorage.setItem('hearth-guest','1');
- sessionStorage.setItem('hearth-guest','1');
- hideAuthOverlay();
- toast('Using Hearth locally on this device');
-};
-
-const authCard=$('#authCard');
-if(authCard)authCard.onsubmit=async(e)=>{
- e.preventDefault();
- const email=$('#authEmail').value.trim();
- const password=$('#authPassword').value;
- const serverUrl=($('#authServerUrl')?.value.trim())||'https://ebook.krugcloud.com';
- const errEl=$('#authError');
- if(errEl)errEl.textContent='';
- if(!email||!password){
-  if(errEl)errEl.textContent='Please enter both email and password.';
-  return;
- }
- if(authMode==='signup'&&password.length<8){
-  if(errEl)errEl.textContent='Password must be at least 8 characters.';
-  return;
- }
- const submitBtn=$('#authSubmitBtn');
- if(submitBtn){
-  submitBtn.disabled=true;
-  submitBtn.textContent=authMode==='signup'?'Creating account…':'Signing in…';
- }
- try{
-  pb.setUrl(serverUrl);
-  if(authMode==='signup'){
-   await pb.register(email,password);
-   toast('Account created & connected!');
-  }else{
-   await pb.login(email,password);
-   toast('Connected to PocketBase');
-  }
-  localStorage.removeItem('hearth-guest');
-  sessionStorage.removeItem('hearth-guest');
-  hideAuthOverlay();
-  updatePocketBaseUI();
-  setupPocketBaseSubscriptions();
-  await loadPocketBaseData();
- }catch(err){
-  const msg=err?.message||'';
-  if(errEl){
-   errEl.textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
-     ?'Could not reach server. Verify your PocketBase URL (e.g. https://ebook.krugcloud.com).'
-     :(msg||'Authentication failed. Check your credentials.');
-  }
- }finally{
-  if(submitBtn){
-   submitBtn.disabled=false;
-   submitBtn.textContent=authMode==='signup'?'Create Account':'Sign In';
-  }
- }
-};
-
-const pbAccountBtn=$('#pbAccountBtn');
-if(pbAccountBtn)pbAccountBtn.onclick=()=>{
- if(pb.isAuthenticated()){
-  const user=pb.user();
-  const email=user?.email||'PocketBase';
-  if(confirm(`Signed in as ${email}.\n\nDo you want to sign out?`)){
-   pb.logout();
-   localStorage.removeItem('hearth-guest');
-   sessionStorage.removeItem('hearth-guest');
-   updatePocketBaseUI();
-   toast('Signed out');
-   showAuthOverlay();
-  }
- }else{
-  showAuthOverlay();
- }
-};
-
-let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render,syncSettingsToPocketBase,syncPocketBaseBatch});
+let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render});
 await householdUI.migrateLocal();
 householdUI.navigate(state.app,false);theme();render();renderHome();initConnection();
-updatePocketBaseUI();
-if(pb.isAuthenticated()){
- setupPocketBaseSubscriptions();
- loadPocketBaseData();
-}else if(!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){
- showAuthOverlay();
-}
