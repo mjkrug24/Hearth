@@ -12,3 +12,13 @@ create table if not exists public.hearth_items (
 alter table public.hearth_items enable row level security;
 revoke all on public.hearth_items from anon, authenticated;
 grant all on public.hearth_items to service_role;
+
+-- Re-runnable migration for household planning.
+alter table public.hearth_items drop constraint if exists hearth_items_kind_check;
+alter table public.hearth_items add constraint hearth_items_kind_check check (kind in ('tasks','groceries','pantry','meals'));
+alter table public.hearth_items add column if not exists details jsonb not null default '{}';
+alter table public.hearth_items add column if not exists created_by text;
+alter table public.hearth_items add column if not exists updated_by text;
+alter table public.hearth_items add column if not exists completed_by text;
+alter table public.hearth_items add column if not exists created_at timestamptz not null default now();
+alter table public.hearth_items add column if not exists updated_at timestamptz not null default now();

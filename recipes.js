@@ -12,3 +12,15 @@ const aliases={eggs:['egg','eggs'],tomato:['tomato','tomatoes'],potato:['potato'
 export function hasIngredient(items,ingredient){return items.some(item=>(aliases[ingredient]||[ingredient]).some(alias=>new RegExp('(^|\\W)'+alias+'(s)?($|\\W)','i').test(item.name)));}
 export function matches(items){return recipes.map((r,id)=>({...r,id,missing:r.ingredients.filter(i=>!hasIngredient(items,i))})).sort((a,b)=>(a.missing.length/a.ingredients.length)-(b.missing.length/b.ingredients.length));}
 export function mealGroups(text){const groups={'Vegetables / fruit':['broccoli','spinach','carrot','tomato','pepper','cucumber','banana','apple','fruit','vegetable'],'Protein':['chicken','fish','salmon','egg','tofu','lentil','beans','chickpea','beef','yogurt'],'Whole grains':['brown rice','whole wheat','whole grain','oats','quinoa'],'Unsaturated fat sources':['olive oil','avocado','nuts','peanut','seeds']};return Object.entries(groups).map(([name,words])=>({name,found:words.filter(w=>new RegExp('(^|\\W)'+w+'(s)?($|\\W)','i').test(text))}));}
+// Quantities match the base methods above. Servings scale the ingredient list, not cooking time.
+const quantities=[
+ [['chicken',300,'g'],['broccoli',2,'cup'],['brown rice',1,'cup'],['olive oil',1,'tbsp']],
+ [['pasta',180,'g'],['tomato',3,'each'],['spinach',2,'cup'],['garlic',2,'clove'],['olive oil',1,'tbsp']],
+ [['eggs',4,'each'],['spinach',1,'cup'],['bell pepper',0.5,'each'],['cheese',2,'tbsp']],
+ [['black beans',1,'can'],['rice',1,'cup'],['tomato',1,'each'],['avocado',1,'each']],
+ [['lentils',1,'cup'],['carrot',2,'each'],['onion',1,'each'],['tomato',1,'can']],
+ [['chickpeas',1,'can'],['cucumber',0.5,'each'],['tomato',2,'each'],['lemon',0.5,'each'],['olive oil',1,'tbsp']],
+ [['oats',1,'cup'],['milk',2,'cup'],['banana',1,'each'],['peanut butter',2,'tbsp']],
+ [['salmon',2,'fillet'],['potato',2,'each'],['broccoli',2,'cup'],['olive oil',1,'tbsp']]
+];
+recipes.forEach((r,i)=>{r.servings=i===4?4:2;r.portions=quantities[i].map(([name,amount,unit])=>({name,amount,unit}));});

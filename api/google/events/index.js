@@ -16,9 +16,11 @@ export default async function handler(req,res){
   }
   if(req.method==='POST'){
    const e=req.body;if(!e||typeof e.googleCalendarId!=='string')throw failure('Choose a Google calendar.');
+   if(e.account){const primary=await google(req,res,'/calendars/primary');if(primary.id!==e.account)throw failure('This pending change belongs to a different Google account.',403);}
    const payload=eventToGoogle(e),calendar=encodeURIComponent(e.googleCalendarId);
+   if(!e.googleEventId&&e.clientEventId){if(!/^[0-9a-f]{32}$/.test(e.clientEventId))throw failure('Invalid client event ID.');payload.id=e.clientEventId;payload.extendedProperties={private:{hearthCreateKey:e.clientEventId}};}
    const path=`/calendars/${calendar}/events`+(e.googleEventId?'/'+encodeURIComponent(e.googleEventId):'');
-   const saved=await google(req,res,path,{method:e.googleEventId?'PATCH':'POST',headers:e.etag?{'If-Match':e.etag}:{},body:JSON.stringify(payload)});
+   let saved;try{saved=await google(req,res,path,{method:e.googleEventId?'PATCH':'POST',headers:e.etag?{'If-Match':e.etag}:{},body:JSON.stringify(payload)});}catch(error){if(error.status!==409||e.googleEventId||!e.clientEventId)throw error;saved=await google(req,res,path+'/'+e.clientEventId);if(saved.extendedProperties?.private?.hearthCreateKey!==e.clientEventId)throw error;}
    return json(res,200,{event:eventFromGoogle(saved,e.googleCalendarId)});
   }
   return json(res,405,{error:'Method not allowed'});

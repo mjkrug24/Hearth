@@ -2,6 +2,13 @@ import {guard,google,allPages,json,failure} from '../_lib/google.js';
 export default async function handler(req,res){
  try{
   guard(req,res);
+  if(req.method==='GET'){
+   const calendar=req.query.calendar;if(!calendar)throw failure('Calendar is required.');
+   const c=await google(req,res,'/users/me/calendarList/'+encodeURIComponent(calendar));
+   if(c.accessRole!=='owner')throw failure('Only the calendar owner can inspect sharing here.',403);
+   const rules=await allPages(req,res,'/calendars/'+encodeURIComponent(calendar)+'/acl');
+   return json(res,200,{rules:rules.filter(r=>r.scope?.type==='user'&&r.role!=='owner').map(r=>({email:r.scope.value,role:r.role}))});
+  }
   if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
   const {calendar,email,role}=req.body||{};
   if(typeof calendar!=='string'||!/^\S+@\S+\.\S+$/.test(email||'')||!['reader','writer','none'].includes(role))throw failure('Choose a calendar, valid email, and access level.');

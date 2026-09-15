@@ -34,6 +34,12 @@ export function eventToGoogle(e){
  if(e.allDay){if(!/^\d{4}-\d{2}-\d{2}$/.test(e.date)||!/^\d{4}-\d{2}-\d{2}$/.test(e.endDate)||e.endDate<=e.date)throw failure('Invalid all-day date range.');body.start={date:e.date};body.end={date:e.endDate};}
  else{if(!e.startDateTime||!e.endDateTime||!Number.isFinite(Date.parse(e.startDateTime))||Date.parse(e.endDateTime)<=Date.parse(e.startDateTime)||!Number.isFinite(Date.parse(e.endDateTime)))throw failure('End time must be after start time.');body.start={dateTime:new Date(e.startDateTime).toISOString()};body.end={dateTime:new Date(e.endDateTime).toISOString()};}
  if(e.reminder==='default')body.reminders={useDefault:true};else if(e.reminder==='none')body.reminders={useDefault:false,overrides:[]};else if(['10','30','60'].includes(e.reminder))body.reminders={useDefault:false,overrides:[{method:'popup',minutes:Number(e.reminder)}]};
+ if(e.repeat&&e.repeat!=='none'){
+  if(!['daily','weekdays','weekly','monthly'].includes(e.repeat)||!Number.isInteger(Number(e.repeatCount))||Number(e.repeatCount)<1||Number(e.repeatCount)>365)throw failure('Choose a valid repeat pattern and count (1–365).');
+  const frequency={daily:'DAILY',weekdays:'WEEKLY;BYDAY=MO,TU,WE,TH,FR',weekly:'WEEKLY',monthly:'MONTHLY'}[e.repeat];
+  body.recurrence=['RRULE:FREQ='+frequency+';COUNT='+Number(e.repeatCount)];
+  if(!e.allDay){try{new Intl.DateTimeFormat('en',{timeZone:e.timeZone});}catch{throw failure('A valid timezone is required for repeating events.');}if(!e.timeZone)throw failure('A timezone is required for repeating events.');body.start.timeZone=e.timeZone;body.end.timeZone=e.timeZone;}
+ }
  return body;
 }
 export const eventFromGoogle=(e,calendar)=>({id:calendar+'::'+e.id,googleEventId:e.id,googleCalendarId:calendar,title:e.summary||'(No title)',date:e.start.date||e.start.dateTime.slice(0,10),endDate:e.end.date||e.end.dateTime.slice(0,10),time:e.start.dateTime?.slice(11,16)||'',end:e.end.dateTime?.slice(11,16)||'',startDateTime:e.start.dateTime||null,endDateTime:e.end.dateTime||null,allDay:!!e.start.date,location:e.location||'',notes:e.description||'',etag:e.etag,updated:e.updated,htmlLink:e.htmlLink,recurringEventId:e.recurringEventId,eventType:e.eventType||'default',reminder:e.reminders?.useDefault?'default':!e.reminders?.overrides?.length?'none':e.reminders.overrides.length===1&&e.reminders.overrides[0].method==='popup'&&[10,30,60].includes(e.reminders.overrides[0].minutes)?String(e.reminders.overrides[0].minutes):'preserve'});

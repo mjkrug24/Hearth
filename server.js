@@ -12,7 +12,7 @@ const routes={
  '/api/google/share':'./api/google/share.js','/api/household':'./api/household.js'
 };
 // Explicit public allowlist prevents .env, tokens, source APIs, and Git data being served.
-const publicFiles=['index.html','styles.css','app.js','calendar-model.js','recipes.js'];
+const publicFiles=['index.html','styles.css','app.js','calendar-model.js','recipes.js','planning.js','offline.js','sw.js'];
 http.createServer(async(req,res)=>{
  res.status=code=>{res.statusCode=code;return res;};res.json=data=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));};res.redirect=url=>{res.statusCode=302;res.setHeader('Location',url);res.end();};
  try{
