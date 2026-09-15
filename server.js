@@ -20,6 +20,40 @@ http.createServer(async(req,res)=>{
  if((req.headers['x-forwarded-proto']||'')==='https')res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
  try{
   const url=new URL(req.url,'http://localhost');req.query=Object.fromEntries(url.searchParams);
+  if(url.pathname.startsWith('/api/pb/')){
+   const pbBase=(req.headers['x-pb-url']||req.query.url||'').replace(/\/+$/,'').replace(/\/_+$/,'');
+   if(!pbBase)return res.status(400).json({error:'Missing x-pb-url header'});
+   const target=pbBase+url.pathname.replace(/^\/api\/pb/,'/api')+(url.search||'');
+   const headers={};
+   for(const [k,v] of Object.entries(req.headers)){
+    if(!['host','connection','x-pb-url','content-length'].includes(k.toLowerCase()))headers[k]=v;
+   }
+   let raw=Buffer.alloc(0);
+   for await(const part of req){raw=Buffer.concat([raw,Buffer.isBuffer(part)?part:Buffer.from(part)]);}
+   try{
+    const upstream=await fetch(target,{
+     method:req.method,
+     headers,
+     body:['GET','HEAD'].includes(req.method)?undefined:(raw.length?raw:undefined)
+    });
+    res.statusCode=upstream.status;
+    for(const [k,v] of upstream.headers){
+     if(!['content-encoding','transfer-encoding'].includes(k.toLowerCase()))res.setHeader(k,v);
+    }
+    if(upstream.body){
+     const reader=upstream.body.getReader();
+     while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      res.write(value);
+     }
+    }
+    res.end();
+   }catch(err){
+    res.status(502).json({error:'PocketBase connection failed: '+err.message});
+   }
+   return;
+  }
   let route=routes[url.pathname];if(/^\/api\/google\/events\/[^/]+$/.test(url.pathname)){route='./api/google/events/[id].js';req.query.id=decodeURIComponent(url.pathname.split('/').pop());}
   if(route){let raw='';for await(const part of req){raw+=part;if(raw.length>100000){res.status(413).json({error:'Request too large'});return;}}req.body=raw?JSON.parse(raw):{};const {default:handler}=await import(route);await handler(req,res);return;}
   const file=url.pathname==='/'?'index.html':url.pathname.slice(1);

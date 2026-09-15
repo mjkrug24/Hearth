@@ -3,30 +3,59 @@
 const STORAGE_URL = 'hearth-pb-url';
 const STORAGE_AUTH = 'hearth-pb-auth';
 
+function getStorage() {
+  try {
+    if (typeof localStorage !== 'undefined') return localStorage;
+  } catch {}
+  return null;
+}
+
 function readJson(key, fallback = null) {
-  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+  try {
+    const storage = getStorage();
+    if (!storage) return fallback;
+    return JSON.parse(storage.getItem(key)) ?? fallback;
+  } catch { return fallback; }
 }
 
 function writeJson(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  try {
+    const storage = getStorage();
+    if (storage) storage.setItem(key, JSON.stringify(val));
+  } catch {}
 }
 
-class PocketBaseClient {
+export class PocketBaseClient {
   constructor() {
     this.listeners = new Map(); // topic -> Set(callbacks)
     this.sse = null;
     this.clientId = null;
-    this.url = localStorage.getItem(STORAGE_URL) || (location.protocol + '//' + location.hostname + ':8090');
+    let defaultUrl = 'http://localhost:8090';
+    try {
+      if (typeof location !== 'undefined' && location.protocol && location.hostname) {
+        defaultUrl = location.protocol + '//' + location.hostname + ':8090';
+      }
+    } catch {}
+    const storage = getStorage();
+    this.url = (storage ? storage.getItem(STORAGE_URL) : null) || defaultUrl;
     this.auth = readJson(STORAGE_AUTH, null);
   }
 
   getUrl() {
-    return this.url.replace(/\/+$/, '');
+    let u = (this.url || '').trim().replace(/\/+$/, '');
+    if (u && !/^https?:\/\//i.test(u)) u = 'http://' + u;
+    // Strip trailing /_ or /_/ from admin UI copy-paste
+    u = u.replace(/\/_+$/, '');
+    return u;
   }
 
   setUrl(newUrl) {
-    this.url = (newUrl || '').trim().replace(/\/+$/, '');
-    localStorage.setItem(STORAGE_URL, this.url);
+    let clean = (newUrl || '').trim().replace(/\/+$/, '');
+    if (clean && !/^https?:\/\//i.test(clean)) clean = 'http://' + clean;
+    clean = clean.replace(/\/_+$/, '');
+    this.url = clean;
+    const storage = getStorage();
+    if (storage) storage.setItem(STORAGE_URL, this.url);
     if (this.sse) {
       this.disconnectRealtime();
       if (this.isAuthenticated()) this.connectRealtime();
@@ -46,12 +75,32 @@ class PocketBaseClient {
   }
 
   async request(path, options = {}) {
-    const url = this.getUrl() + path;
+    const directUrl = this.getUrl() + path;
     const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
     if (this.auth?.token) {
       headers['Authorization'] = this.auth.token;
     }
-    const res = await fetch(url, { ...options, headers });
+
+    let res;
+    // In browser: attempt same-origin proxy first to bypass CSP & CORS
+    const isBrowser = typeof window !== 'undefined' && typeof location !== 'undefined';
+    if (isBrowser) {
+      try {
+        const proxyUrl = '/api/pb' + path.replace(/^\/api/, '');
+        res = await fetch(proxyUrl, {
+          ...options,
+          headers: { ...headers, 'x-pb-url': this.getUrl() }
+        });
+        if (res.status === 404 || res.status === 502) {
+          throw new Error('Proxy unavailable');
+        }
+      } catch {
+        res = await fetch(directUrl, { ...options, headers });
+      }
+    } else {
+      res = await fetch(directUrl, { ...options, headers });
+    }
+
     if (res.status === 204) return null;
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -90,7 +139,8 @@ class PocketBaseClient {
   logout() {
     this.disconnectRealtime();
     this.auth = null;
-    localStorage.removeItem(STORAGE_AUTH);
+    const storage = getStorage();
+    if (storage) storage.removeItem(STORAGE_AUTH);
   }
 
   // --- Generic Collection Helpers ---
@@ -126,7 +176,9 @@ class PocketBaseClient {
   connectRealtime() {
     if (this.sse || typeof EventSource === 'undefined') return;
     try {
-      this.sse = new EventSource(this.getUrl() + '/api/realtime');
+      // Connect to SSE via same-origin proxy or direct
+      const sseUrl = '/api/pb/realtime?url=' + encodeURIComponent(this.getUrl());
+      this.sse = new EventSource(sseUrl);
       this.sse.addEventListener('PB_CONNECT', async e => {
         try {
           const data = JSON.parse(e.data);
@@ -240,4 +292,3 @@ class PocketBaseClient {
 }
 
 export const pb = new PocketBaseClient();
-
