@@ -57,8 +57,9 @@ http.createServer(async(req,res)=>{
   let route=routes[url.pathname];if(/^\/api\/google\/events\/[^/]+$/.test(url.pathname)){route='./api/google/events/[id].js';req.query.id=decodeURIComponent(url.pathname.split('/').pop());}
   if(route){let raw='';for await(const part of req){raw+=part;if(raw.length>100000){res.status(413).json({error:'Request too large'});return;}}req.body=raw?JSON.parse(raw):{};const {default:handler}=await import(route);await handler(req,res);return;}
   const file=url.pathname==='/'?'index.html':url.pathname.slice(1);
-  if(!publicFiles.includes(file))return res.status(404).json({error:'Not found'});
-  res.setHeader('Content-Type',file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.svg')?'image/svg+xml':file.endsWith('.png')?'image/png':file.endsWith('.ico')?'image/x-icon':file.endsWith('.json')?'application/manifest+json':'text/javascript; charset=utf-8');
+  const isImage=/^images\/[\w\-\/]+\.(jpg|jpeg|png|webp|svg)$/i.test(file);
+  if(!publicFiles.includes(file)&&!isImage)return res.status(404).json({error:'Not found'});
+  res.setHeader('Content-Type',file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.svg')?'image/svg+xml':file.endsWith('.png')?'image/png':(file.endsWith('.jpg')||file.endsWith('.jpeg'))?'image/jpeg':file.endsWith('.webp')?'image/webp':file.endsWith('.ico')?'image/x-icon':file.endsWith('.json')?'application/manifest+json':'text/javascript; charset=utf-8');
   fs.createReadStream(path.join(root,file)).pipe(res);
  }catch(e){res.status(500).json({error:e.message});}
 }).listen(port,process.env.HOST||'0.0.0.0',()=>console.log('Hearth: http://localhost:'+port));
