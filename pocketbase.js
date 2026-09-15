@@ -30,10 +30,12 @@ export class PocketBaseClient {
     this.listeners = new Map(); // topic -> Set(callbacks)
     this.sse = null;
     this.clientId = null;
-    let defaultUrl = 'http://localhost:8090';
+    let defaultUrl = 'https://ebook.krugcloud.com';
     try {
-      if (typeof location !== 'undefined' && location.protocol && location.hostname) {
-        defaultUrl = location.protocol + '//' + location.hostname + ':8090';
+      if (typeof location !== 'undefined') {
+        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+          defaultUrl = 'http://localhost:8090';
+        }
       }
     } catch {}
     const storage = getStorage();
@@ -43,7 +45,10 @@ export class PocketBaseClient {
 
   getUrl() {
     let u = (this.url || '').trim().replace(/\/+$/, '');
-    if (u && !/^https?:\/\//i.test(u)) u = 'http://' + u;
+    if (u && !/^https?:\/\//i.test(u)) {
+      const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+      u = (isHttps ? 'https://' : 'http://') + u;
+    }
     // Strip trailing /_ or /_/ from admin UI copy-paste
     u = u.replace(/\/_+$/, '');
     return u;
@@ -51,7 +56,10 @@ export class PocketBaseClient {
 
   setUrl(newUrl) {
     let clean = (newUrl || '').trim().replace(/\/+$/, '');
-    if (clean && !/^https?:\/\//i.test(clean)) clean = 'http://' + clean;
+    if (clean && !/^https?:\/\//i.test(clean)) {
+      const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+      clean = (isHttps ? 'https://' : 'http://') + clean;
+    }
     clean = clean.replace(/\/_+$/, '');
     this.url = clean;
     const storage = getStorage();
@@ -82,23 +90,27 @@ export class PocketBaseClient {
     }
 
     let res;
-    // In browser: attempt same-origin proxy first to bypass CSP & CORS
-    const isBrowser = typeof window !== 'undefined' && typeof location !== 'undefined';
-    if (isBrowser) {
-      try {
-        const proxyUrl = '/api/pb' + path.replace(/^\/api/, '');
-        res = await fetch(proxyUrl, {
-          ...options,
-          headers: { ...headers, 'x-pb-url': this.getUrl() }
-        });
-        if (res.status === 404 || res.status === 502) {
-          throw new Error('Proxy unavailable');
-        }
-      } catch {
-        res = await fetch(directUrl, { ...options, headers });
-      }
-    } else {
+    try {
       res = await fetch(directUrl, { ...options, headers });
+    } catch (directErr) {
+      // In browser: attempt same-origin proxy fallback if direct fetch fails
+      const isBrowser = typeof window !== 'undefined' && typeof location !== 'undefined';
+      if (isBrowser) {
+        try {
+          const proxyUrl = '/api/pb' + path.replace(/^\/api/, '');
+          res = await fetch(proxyUrl, {
+            ...options,
+            headers: { ...headers, 'x-pb-url': this.getUrl() }
+          });
+          if (res.status === 404 || res.status === 502) {
+            throw directErr;
+          }
+        } catch {
+          throw directErr;
+        }
+      } else {
+        throw directErr;
+      }
     }
 
     if (res.status === 204) return null;
@@ -176,8 +188,8 @@ export class PocketBaseClient {
   connectRealtime() {
     if (this.sse || typeof EventSource === 'undefined') return;
     try {
-      // Connect to SSE via same-origin proxy or direct
-      const sseUrl = '/api/pb/realtime?url=' + encodeURIComponent(this.getUrl());
+      // Connect to SSE directly
+      const sseUrl = this.getUrl() + '/api/realtime';
       this.sse = new EventSource(sseUrl);
       this.sse.addEventListener('PB_CONNECT', async e => {
         try {

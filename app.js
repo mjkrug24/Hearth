@@ -570,7 +570,10 @@ $('#pbSignInBtn').onclick=async()=>{
   await loadPocketBaseData();
   toast('Connected to PocketBase');
  }catch(err){
-  $('#pbError').textContent=err.message||'Failed to sign in to PocketBase.';
+  const msg=err?.message||'';
+  $('#pbError').textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
+    ?'Could not reach server. Verify your PocketBase URL (e.g. https://ebook.krugcloud.com).'
+    :(msg||'Failed to sign in to PocketBase.');
  }finally{$('#pbSignInBtn').disabled=false;}
 };
 
@@ -592,7 +595,10 @@ $('#pbSignUpBtn').onclick=async()=>{
   await loadPocketBaseData();
   toast('PocketBase account created & connected');
  }catch(err){
-  $('#pbError').textContent=err.message||'Failed to register with PocketBase.';
+  const msg=err?.message||'';
+  $('#pbError').textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
+    ?'Could not reach server. Verify your PocketBase URL (e.g. https://ebook.krugcloud.com).'
+    :(msg||'Failed to register with PocketBase.');
  }finally{$('#pbSignUpBtn').disabled=false;}
 };
 
