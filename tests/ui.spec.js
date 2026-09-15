@@ -4,6 +4,7 @@ const day='2026-09-15';
 const work={id:'work::1',googleEventId:'1',googleCalendarId:'work',title:'Work shift',date:day,endDate:day,time:'08:00',end:'17:00',startDateTime:day+'T13:00:00Z',endDateTime:day+'T22:00:00Z',allDay:false,eventType:'default',etag:'a'};
 async function setup(page,connected=true){
  await page.clock.install({time:new Date(day+'T14:00:00Z')});
+ await page.addInitScript(()=>{localStorage.setItem('hearth-guest','1');});
  await page.route('**/api/google/status',r=>r.fulfill({json:{configured:true,connected}}));
  await page.route('**/api/household',r=>r.fulfill({json:{shared:false,items:[]}}));
  await page.route('**/api/google/events?*',r=>r.fulfill({json:{calendars,events:[work,{...work,id:'mine::2',googleEventId:'2',googleCalendarId:'mine',title:'Lunch',startDateTime:day+'T17:00:00Z',endDateTime:day+'T18:00:00Z'}]}}));
@@ -167,3 +168,57 @@ test('PocketBase settings UI connects, displays status, and disconnects', async(
  await expect(page.locator('#pbConnectedState')).not.toBeVisible();
 });
 
+test('Booknook-style login overlay appears on first visit, supports sign in, guest bypass, and topbar account', async({page})=>{
+ await page.clock.install({time:new Date(day+'T14:00:00Z')});
+ await page.route('**/api/google/status',r=>r.fulfill({json:{configured:true,connected:false}}));
+ await page.route('**/api/household',r=>r.fulfill({json:{shared:false,items:[]}}));
+ await page.route('**/api/collections/users/auth-with-password', r => r.fulfill({
+  status: 200,
+  json: { token: 'mock-pb-token', record: { id: 'usr-pb-1', email: 'reader@example.com' } }
+ }));
+ await page.route('**/api/collections/hearth_settings/records*', r => r.fulfill({
+  status: 200,
+  json: { items: [] }
+ }));
+ await page.route('**/api/collections/hearth_items/records*', r => r.fulfill({
+  status: 200,
+  json: { items: [] }
+ }));
+ await page.route('**/api/collections/hearth_events/records*', r => r.fulfill({
+  status: 200,
+  json: { items: [] }
+ }));
+
+ await page.goto('/');
+
+ // Auth overlay is visible on first visit
+ const overlay = page.locator('#authOverlay');
+ await expect(overlay).toBeVisible();
+ await expect(page.locator('#authTitle')).toHaveText('Sign in to continue');
+ await expect(page.locator('#authServerUrl')).toHaveValue(/ebook\.krugcloud\.com|localhost/);
+
+ // Toggle between sign in and create account
+ await page.click('#authToggleBtn');
+ await expect(page.locator('#authTitle')).toHaveText('Create your account');
+ await expect(page.locator('#authSubmitBtn')).toHaveText('Create Account');
+ await page.click('#authToggleBtn');
+ await expect(page.locator('#authTitle')).toHaveText('Sign in to continue');
+
+ // Test guest button bypasses overlay
+ await page.click('#authGuestBtn');
+ await expect(overlay).not.toBeVisible();
+ await expect(page.locator('#pbAccountText')).toHaveText('Sign In');
+
+ // Click topbar Sign In button to bring back overlay
+ await page.click('#pbAccountBtn');
+ await expect(overlay).toBeVisible();
+
+ // Sign in with credentials
+ await page.fill('#authEmail', 'reader@example.com');
+ await page.fill('#authPassword', 'secretpass123');
+ await page.click('#authSubmitBtn');
+
+ // Overlay closes and topbar updates
+ await expect(overlay).not.toBeVisible();
+ await expect(page.locator('#pbAccountText')).toHaveText('reader');
+});

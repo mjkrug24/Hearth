@@ -6,7 +6,7 @@
   <button class="icon" id="menuBtn" aria-label="Toggle calendars">☰</button>
   <a class="brand" href="/"><span>H</span> Hearth</a>
   <nav class="app-tabs" aria-label="Workspace"><button data-app="calendar" class="active">Calendar</button><button data-app="home">Home</button></nav>
-  <div class="top-spacer"></div><button class="icon" id="themeBtn" aria-label="Toggle dark mode">◐</button><button class="icon" id="settingsBtn" aria-label="Settings">⚙</button><button id="accountBtn" class="button">Google account</button>
+  <div class="top-spacer"></div><button class="icon" id="themeBtn" aria-label="Toggle dark mode">◐</button><button id="pbAccountBtn" class="button pb-account-btn" aria-label="PocketBase account"><span class="pb-dot"></span><span id="pbAccountText">Sign In</span></button><button class="icon" id="settingsBtn" aria-label="Settings">⚙</button><button id="accountBtn" class="button">Google account</button>
 </header>
 <main>
   <aside id="sidebar">
@@ -64,6 +64,35 @@
 <dialog id="shareDialog"><form id="shareForm"><div class="dialog-heading"><h2>Calendar sharing</h2><button type="button" class="icon" data-close aria-label="Close sharing">×</button></div><p id="shareName"></p><label class="check"><input id="spouseShare" type="checkbox"> Share with spouse</label><p id="spouseStatus" class="muted"></p><div id="sharingRules"></div><label>Google account email<input id="shareEmail" type="email" required></label><label>Access<select id="shareRole"><option value="reader">See events</option><option value="writer">See and edit events</option><option value="none">Remove access</option></select></label><p class="muted">This changes Google Calendar permissions. Only the owner can share a calendar. The recipient may need to add it in Google Calendar before it appears here.</p><p class="error" id="shareError"></p><button class="primary">Apply sharing</button></form></dialog>
 <dialog id="itemDialog"><form id="itemForm"><div class="dialog-heading"><h2>Edit list item</h2><button type="button" class="icon" data-close aria-label="Close item">×</button></div><label>Name<input id="itemName" required maxlength="200"></label><div id="taskFields"><label id="itemDueLabel">Due date<input id="itemDue" type="date"></label><label>Assigned to<select id="itemAssignee"></select></label><label>Priority<select id="itemPriority"><option value="normal">Normal</option><option value="high">High</option><option value="low">Low</option></select></label><label>Repeat chore<select id="itemRepeat"><option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label><p class="muted">Completing a recurring chore creates its next dated task once.</p></div><div id="inventoryFields"><label id="itemQuantityLabel">Shopping note<input id="itemQuantity" maxlength="50"></label><div class="form-grid"><label>Amount<input id="itemAmount" type="number" min="0" step="0.01"></label><label>Unit<select id="itemUnit"><option>each</option><option>g</option><option>cup</option><option>tbsp</option><option>can</option><option>clove</option><option>fillet</option></select></label></div></div><p id="itemError" class="error" role="alert"></p><button class="primary">Save changes</button></form></dialog>
 <dialog id="syncDialog"><div class="dialog-heading"><h2>Sync details</h2><button class="icon" data-close aria-label="Close sync details">×</button></div><div id="syncDetails"></div><div class="dialog-actions"><button class="primary" id="retryQueue">Retry pending changes</button><button class="button" id="refreshAll">Refresh calendars & home</button></div></dialog>
+<div id="authOverlay" class="auth-overlay hidden">
+  <form id="authCard" class="auth-card" novalidate>
+    <div class="auth-header">
+      <p class="eyebrow">HEARTH SYNC</p>
+      <h2 id="authTitle">Sign in to continue</h2>
+      <p class="auth-copy" id="authSubtitle">Use your account to sync your calendar, meals, recipes, and lists across all your devices.</p>
+    </div>
+    <div class="auth-fields">
+      <label>Email
+        <input id="authEmail" type="email" autocomplete="username" placeholder="user@example.com" required>
+      </label>
+      <label>Password
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="••••••••" required minlength="8">
+      </label>
+    </div>
+    <p id="authError" class="auth-error error" role="alert"></p>
+    <div class="auth-actions">
+      <button type="submit" class="primary auth-submit-btn" id="authSubmitBtn">Sign In</button>
+      <button type="button" class="button auth-toggle-btn" id="authToggleBtn">Need an account? Create one</button>
+      <button type="button" class="text-button auth-guest-btn" id="authGuestBtn">Continue on this device without syncing</button>
+    </div>
+    <details class="auth-advanced">
+      <summary>Server settings</summary>
+      <label>PocketBase URL
+        <input id="authServerUrl" type="url" value="https://ebook.krugcloud.com" autocomplete="url">
+      </label>
+    </details>
+  </form>
+</div>
 <div id="undoBar" class="hidden" role="status"><span></span><button class="button" id="undoDelete">Undo</button></div>
 <div id="toast" class="hidden" role="status"></div><script type="module" src="app.js"></script>
 </body></html>

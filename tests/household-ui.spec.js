@@ -3,7 +3,7 @@ import {recipes} from '../recipes.js';
 const day='2026-09-15';
 const id=()=>crypto.randomUUID();
 const meal=(extra={})=>({id:id(),kind:'meals',name:recipes[2].name,recipeId:recipes[2].id,recipeSnapshot:recipes[2],servings:2,due:day,done:false,...extra});
-async function local(page,home={}){await page.clock.install({time:new Date(day+'T14:00:00Z')});await page.addInitScript(data=>{if(!localStorage.getItem('seeded')){localStorage.setItem('hearth-home',JSON.stringify(data));localStorage.setItem('seeded','yes');}},home);await page.route('**/api/google/status',r=>r.fulfill({json:{configured:true,connected:false}}));await page.route('**/api/household',r=>r.fulfill({json:{shared:false,items:[]}}));await page.goto('/');await expect(page.locator('#homeStatus')).toHaveText('Saved on this device');}
+async function local(page,home={}){await page.clock.install({time:new Date(day+'T14:00:00Z')});await page.addInitScript(data=>{localStorage.setItem('hearth-guest','1');if(!localStorage.getItem('seeded')){localStorage.setItem('hearth-home',JSON.stringify(data));localStorage.setItem('seeded','yes');}},home);await page.route('**/api/google/status',r=>r.fulfill({json:{configured:true,connected:false}}));await page.route('**/api/household',r=>r.fulfill({json:{shared:false,items:[]}}));await page.goto('/');await expect(page.locator('#homeStatus')).toHaveText('Saved on this device');}
 const go=(page,name)=>page.getByRole('button',{name,exact:true}).click();
 test('Home first visit, persistent destinations, searchable picker retains chosen date and favorites',async({page})=>{
  await local(page);await expect(page.locator('[data-app=home]')).toHaveAttribute('aria-current','page');await go(page,'Meals');await page.locator('#mealWeekGrid [data-plan-day="2026-09-18"]').click();await expect(page.locator('#pickerDate')).toContainText('September 18');await page.locator('#pickerSearch').fill('omelet');await page.locator('[data-pick]').click();await expect(page.locator('#recipeDate')).toHaveValue('2026-09-18');await page.click('#favoriteRecipe');await page.click('#planRecipe');await expect(page.locator('#mealWeekGrid')).toContainText('Vegetable omelet');await page.check('#recipeFavorites');await expect(page.locator('#recipeList .recipe-button')).toHaveCount(1);await page.reload();await expect(page.locator('[data-app=meals]')).toHaveAttribute('aria-current','page');
@@ -22,6 +22,7 @@ test('Mobile screens avoid page overflow and icon assets are served with correct
 });
 
 async function sharedSetup(page,store,account='owner@example.com'){
+ await page.addInitScript(()=>{localStorage.setItem('hearth-guest','1');});
  await page.clock.install({time:new Date(day+'T14:00:00Z')});
  await page.route('**/api/google/status',r=>r.fulfill({json:{connected:true,configured:true,account,members:['owner@example.com','partner@example.com']}}));
  await page.route('**/api/google/events?*',r=>r.fulfill({json:{calendars:[{id:account,primary:true,name:'Personal',accessRole:'owner',backgroundColor:'#285740',foregroundColor:'#fff'}],events:[]}}));

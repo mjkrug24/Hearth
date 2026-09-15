@@ -275,7 +275,9 @@ export class PocketBaseClient {
   // --- Hearth-specific Methods ---
 
   async fetchSettings() {
-    const list = await this.getFullList('hearth_settings', { sort: '-created' });
+    const userId = this.user()?.id;
+    const filter = userId ? `user = "${userId}"` : '';
+    const list = await this.getFullList('hearth_settings', { filter, sort: '-created' });
     return list[0] || null;
   }
 
