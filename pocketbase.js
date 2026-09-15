@@ -302,7 +302,9 @@ export class PocketBaseClient {
   }
 
   async fetchEvents() {
-    return this.getFullList('hearth_events', { sort: 'date' });
+    const userId = this.user()?.id;
+    const filter = userId ? `user = "${userId}"` : '';
+    return this.getFullList('hearth_events', { filter, sort: 'date' });
   }
 }
 
