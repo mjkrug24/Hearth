@@ -523,6 +523,201 @@ async function loadSharing(){
  catch(e){$('#shareError').textContent=e.message;$('#spouseStatus').textContent='Sharing status unavailable';}
 }
 
-let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render});
+$('#pbSignInBtn').onclick=async()=>{
+ const url=$('#pbUrlInput').value.trim();
+ const email=$('#pbEmailInput').value.trim();
+ const password=$('#pbPasswordInput').value;
+ $('#pbError').textContent='';
+ if(!url)return $('#pbError').textContent='Please enter your PocketBase server URL.';
+ if(!email||!password)return $('#pbError').textContent='Please enter your email and password.';
+ $('#pbSignInBtn').disabled=true;
+ try{
+  pb.setUrl(url);
+  await pb.login(email,password);
+  $('#pbPasswordInput').value='';
+  updatePocketBaseUI();
+  setupPocketBaseSubscriptions();
+  await loadPocketBaseData();
+  toast('Connected to PocketBase');
+ }catch(err){
+  const msg=err?.message||'';
+  $('#pbError').textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
+    ?'Could not reach server. Verify your PocketBase URL (e.g. https://ebook.krugcloud.com).'
+    :(msg||'Failed to sign in to PocketBase.');
+ }finally{$('#pbSignInBtn').disabled=false;}
+};
+
+$('#pbSignUpBtn').onclick=async()=>{
+ const url=$('#pbUrlInput').value.trim();
+ const email=$('#pbEmailInput').value.trim();
+ const password=$('#pbPasswordInput').value;
+ $('#pbError').textContent='';
+ if(!url)return $('#pbError').textContent='Please enter your PocketBase server URL.';
+ if(!email||!password)return $('#pbError').textContent='Please enter an email and password to create an account.';
+ if(password.length<8)return $('#pbError').textContent='Password must be at least 8 characters.';
+ $('#pbSignUpBtn').disabled=true;
+ try{
+  pb.setUrl(url);
+  await pb.register(email,password);
+  $('#pbPasswordInput').value='';
+  updatePocketBaseUI();
+  setupPocketBaseSubscriptions();
+  await loadPocketBaseData();
+  toast('PocketBase account created & connected');
+ }catch(err){
+  const msg=err?.message||'';
+  $('#pbError').textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
+    ?'Could not reach server. Verify your PocketBase URL (e.g. https://ebook.krugcloud.com).'
+    :(msg||'Failed to register with PocketBase.');
+ }finally{$('#pbSignUpBtn').disabled=false;}
+};
+
+$('#pbDisconnectBtn').onclick=()=>{
+ pb.logout();
+ localStorage.removeItem('hearth-guest');
+ sessionStorage.removeItem('hearth-guest');
+ updatePocketBaseUI();
+ toast('Disconnected from PocketBase');
+ showAuthOverlay();
+};
+
+$('#pbUploadDataBtn').onclick=async()=>{
+ $('#pbUploadDataBtn').disabled=true;
+ try{
+  toast('Uploading device data to PocketBase…');
+  await uploadDeviceDataToPocketBase();
+  toast('Device data uploaded to PocketBase');
+ }catch(err){
+  toast('Failed to upload data: '+err.message);
+ }finally{$('#pbUploadDataBtn').disabled=false;}
+};
+
+let authMode='signin';
+
+function showAuthOverlay(){
+ const overlay=$('#authOverlay');
+ if(!overlay)return;
+ overlay.classList.remove('hidden');
+ const emailInput=$('#authEmail'),passInput=$('#authPassword'),errorText=$('#authError'),urlInput=$('#authServerUrl');
+ if(emailInput)emailInput.value=pb.user()?.email||'';
+ if(passInput)passInput.value='';
+ if(errorText)errorText.textContent='';
+ if(urlInput)urlInput.value=pb.getUrl();
+ setAuthMode('signin');
+ requestAnimationFrame(()=>emailInput?.focus());
+}
+
+function hideAuthOverlay(){
+ const overlay=$('#authOverlay');
+ if(overlay)overlay.classList.add('hidden');
+}
+
+function setAuthMode(mode){
+ authMode=mode;
+ const title=$('#authTitle'),sub=$('#authSubtitle'),submit=$('#authSubmitBtn'),toggle=$('#authToggleBtn');
+ if(authMode==='signup'){
+  if(title)title.textContent='Create your account';
+  if(sub)sub.textContent='Create an account to automatically sync your Hearth data across all your devices.';
+  if(submit)submit.textContent='Create Account';
+  if(toggle)toggle.textContent='Already have an account? Sign in';
+ }else{
+  if(title)title.textContent='Sign in to continue';
+  if(sub)sub.textContent='Use your account to sync your calendar, meals, recipes, and lists across all your devices.';
+  if(submit)submit.textContent='Sign In';
+  if(toggle)toggle.textContent='Need an account? Create one';
+ }
+}
+
+const authToggleBtn=$('#authToggleBtn');
+if(authToggleBtn)authToggleBtn.onclick=()=>{
+ setAuthMode(authMode==='signin'?'signup':'signin');
+ const err=$('#authError');if(err)err.textContent='';
+};
+
+const authGuestBtn=$('#authGuestBtn');
+if(authGuestBtn)authGuestBtn.onclick=()=>{
+ localStorage.setItem('hearth-guest','1');
+ sessionStorage.setItem('hearth-guest','1');
+ hideAuthOverlay();
+ toast('Using Hearth locally on this device');
+};
+
+const authCard=$('#authCard');
+if(authCard)authCard.onsubmit=async(e)=>{
+ e.preventDefault();
+ const email=$('#authEmail').value.trim();
+ const password=$('#authPassword').value;
+ const serverUrl=($('#authServerUrl')?.value.trim())||'https://ebook.krugcloud.com';
+ const errEl=$('#authError');
+ if(errEl)errEl.textContent='';
+ if(!email||!password){
+  if(errEl)errEl.textContent='Please enter both email and password.';
+  return;
+ }
+ if(authMode==='signup'&&password.length<8){
+  if(errEl)errEl.textContent='Password must be at least 8 characters.';
+  return;
+ }
+ const submitBtn=$('#authSubmitBtn');
+ if(submitBtn){
+  submitBtn.disabled=true;
+  submitBtn.textContent=authMode==='signup'?'Creating account…':'Signing in…';
+ }
+ try{
+  pb.setUrl(serverUrl);
+  if(authMode==='signup'){
+   await pb.register(email,password);
+   toast('Account created & connected!');
+  }else{
+   await pb.login(email,password);
+   toast('Connected to PocketBase');
+  }
+  localStorage.removeItem('hearth-guest');
+  sessionStorage.removeItem('hearth-guest');
+  hideAuthOverlay();
+  updatePocketBaseUI();
+  setupPocketBaseSubscriptions();
+  await loadPocketBaseData();
+ }catch(err){
+  const msg=err?.message||'';
+  if(errEl){
+   errEl.textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
+     ?'Could not reach server. Verify your PocketBase URL (e.g. https://ebook.krugcloud.com).'
+     :(msg||'Authentication failed. Check your credentials.');
+  }
+ }finally{
+  if(submitBtn){
+   submitBtn.disabled=false;
+   submitBtn.textContent=authMode==='signup'?'Create Account':'Sign In';
+  }
+ }
+};
+
+const pbAccountBtn=$('#pbAccountBtn');
+if(pbAccountBtn)pbAccountBtn.onclick=()=>{
+ if(pb.isAuthenticated()){
+  const user=pb.user();
+  const email=user?.email||'PocketBase';
+  if(confirm(`Signed in as ${email}.\n\nDo you want to sign out?`)){
+   pb.logout();
+   localStorage.removeItem('hearth-guest');
+   sessionStorage.removeItem('hearth-guest');
+   updatePocketBaseUI();
+   toast('Signed out');
+   showAuthOverlay();
+  }
+ }else{
+  showAuthOverlay();
+ }
+};
+
+let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render,syncSettingsToPocketBase,syncPocketBaseBatch});
 await householdUI.migrateLocal();
 householdUI.navigate(state.app,false);theme();render();renderHome();initConnection();
+updatePocketBaseUI();
+if(pb.isAuthenticated()){
+ setupPocketBaseSubscriptions();
+ loadPocketBaseData();
+}else if(!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){
+ showAuthOverlay();
+}

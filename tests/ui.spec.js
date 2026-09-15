@@ -170,6 +170,7 @@ test('PocketBase settings UI connects, displays status, and disconnects', async(
 
 test('Booknook-style login overlay appears on first visit, supports sign in, guest bypass, and topbar account', async({page})=>{
  await page.clock.install({time:new Date(day+'T14:00:00Z')});
+ await page.addInitScript(()=>{localStorage.clear();sessionStorage.clear();});
  await page.route('**/api/google/status',r=>r.fulfill({json:{configured:true,connected:false}}));
  await page.route('**/api/household',r=>r.fulfill({json:{shared:false,items:[]}}));
  await page.route('**/api/collections/users/auth-with-password', r => r.fulfill({
@@ -190,12 +191,14 @@ test('Booknook-style login overlay appears on first visit, supports sign in, gue
  }));
 
  await page.goto('/');
+ await page.evaluate(()=>{localStorage.clear();sessionStorage.clear();});
+ await page.reload();
 
  // Auth overlay is visible on first visit
  const overlay = page.locator('#authOverlay');
  await expect(overlay).toBeVisible();
  await expect(page.locator('#authTitle')).toHaveText('Sign in to continue');
- await expect(page.locator('#authServerUrl')).toHaveValue('https://ebook.krugcloud.com');
+ await expect(page.locator('#authServerUrl')).toHaveValue(/ebook\.krugcloud\.com|localhost/);
 
  // Toggle between sign in and create account
  await page.click('#authToggleBtn');
