@@ -1,3 +1,5 @@
 .env
 .hearth-calendar-data.json
 node_modules/
+test-results/
+playwright-report/

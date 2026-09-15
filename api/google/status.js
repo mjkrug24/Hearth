@@ -1,2 +1,2 @@
-import { configured,tokens } from '../_lib/google.js';
-export default function handler(req,res){res.setHeader('Cache-Control','private, no-store, max-age=0');res.status(200).json({connected:Boolean(tokens(req)),configured:configured()})}
+import {guard,configured,tokens,clearTokens} from '../_lib/google.js';
+export default function handler(req,res){try{guard(req,res);if(req.method==='DELETE'){clearTokens(res);return res.status(204).end();}if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});res.status(200).json({connected:!!tokens(req),configured:configured()});}catch(e){res.status(e.status||500).json({error:e.message});}}

@@ -1,39 +1,69 @@
-# Hearth Calendar
+# Hearth
 
-A Google Calendar-inspired front end with event management, calendar visibility controls, month/week/day/schedule views, search, reminders, and local persistence.
+Calendar and household workspace. Uses Google Calendar directly and optionally Supabase for shared tasks and groceries. Recipes are built in; no AI service is used.
 
-## Run it
+## Run and verify
 
-1. Copy `.env.example` to `.env` and add your Google OAuth client ID and secret.
-2. In Google Cloud Console, add `http://localhost:3000/auth/google/callback` as an authorized redirect URI.
-3. Run `node server.js`, then open `http://localhost:3000`.
+Requires Node 22+.
 
-The app still works in local-only mode if `.env` has not been configured. The server must be used for the Google connection because OAuth refresh tokens are kept server-side.
+1. Copy .env.example to .env and configure your OAuth credentials.
+2. Run `npm install`, then `npm start`.
+3. Open http://localhost:3000.
 
-## Deploy on Vercel
+The local server and Vercel use the same API handlers. Public files are explicitly allowlisted locally; secrets and server source cannot be downloaded.
 
-The repository includes Vercel serverless OAuth and Calendar API routes. In **Vercel → Project → Settings → Environment Variables**, set these for Production (and Preview if you use preview deployments):
+Tests:
 
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `TOKEN_ENCRYPTION_KEY` — a long, randomly generated private value
-- `APP_BASE_URL` — your exact public origin, for example `https://your-project.vercel.app`
+- `npm test`: calendar math, timezone normalization, pagination, event writes, cookie encryption, request-origin checks.
+- `npx playwright install chromium`, then `npm run test:browser`: desktop/mobile browser workflows and timeline geometry using mocked Google responses. No test changes a real calendar.
 
-In Google Cloud Console, add `${APP_BASE_URL}/auth/google/callback` to **Authorized redirect URIs**. For the example above, that is `https://your-project.vercel.app/auth/google/callback`. Do not use the localhost URI for a Vercel deployment.
+## Vercel
 
-Vercel functions keep each person’s encrypted OAuth token in their own secure browser cookie, so users can connect independent Google accounts without sharing credentials or requiring a database.
+Deploy the repository with the Other framework preset and no build command. Configure Production environment variables:
 
-## Google two-way sync
+| Key | Value |
+| --- | --- |
+| APP_BASE_URL | https://hearth-coral-two.vercel.app |
+| GOOGLE_CLIENT_ID | Google web OAuth client ID |
+| GOOGLE_CLIENT_SECRET | Current Google client secret |
+| TOKEN_ENCRYPTION_KEY | Stable random secret, at least 32 characters |
 
-The UI intentionally does not store Google credentials in the browser. A production sync service should own OAuth tokens and use the Google Calendar API:
+Google OAuth authorized redirect URI: https://hearth-coral-two.vercel.app/auth/google/callback
 
-1. Create a Google Cloud project, enable **Google Calendar API**, configure an OAuth consent screen, and create a web OAuth client.
-2. The Connect button should begin the authorization-code flow on your backend with the `https://www.googleapis.com/auth/calendar` scope and offline access.
-3. Store encrypted refresh tokens per user; never expose them to the client.
-4. When an event changes locally, send the app event ID and `updated` timestamp to the backend. Create/update/delete its paired Google event with `events.insert`, `events.update`, or `events.delete`.
-5. Store the Google event ID, ETag, and sync token. Pull incremental Google changes with `events.list` using `syncToken`, applying deletions as well.
-6. Subscribe to Google Calendar push notifications (`events.watch`) and enqueue an incremental pull for each notification. Resolve simultaneous edits with a documented policy such as last-write-wins, or surface a conflict to the user.
+The existing OAuth consent-screen publication and Calendar API enablement still apply. Changing environment values requires a new deployment. Preview deployments need a matching origin and OAuth redirect.
 
-Useful backend endpoints are `GET /auth/google`, `GET /auth/google/callback`, `POST /api/events`, `PATCH /api/events/:id`, `DELETE /api/events/:id`, and `POST /api/google/webhook`.
+Tokens are encrypted in HttpOnly cookies (Secure on HTTPS). The server refreshes Google access tokens as needed. The session cookie lasts up to 180 days; Google revocation or testing-mode token expiration can still require reconnection. Disconnect clears this browser's cookie; revoke the app in Google account permissions to remove authorization globally.
 
-The included `server.js` implements the authorization-code flow, token refresh, event pull, and create/update/delete against the primary Google calendar. Calendar changes made in Hearth are pushed when saved; the **Sync now** button pulls changes made in Google Calendar.
+## Calendars
+
+- All accessible Google calendars are listed, grouped by ownership and colored using Google calendar metadata. Visibility persists on the device; hiding all calendars shows no events.
+- Events load for the selected month plus adjacent weeks. Schedule covers today through the next 180 days. All result pages are fetched.
+- Sync refreshes while the app is open, every minute, and on navigation. This is foreground polling, not background push sync.
+- Timed events use the device timezone. All-day dates keep their original date boundaries. Week/day provide 24 hours, separate all-day rows, overlapping-event lanes, and overnight segments.
+- Writes preserve the original calendar, use PATCH to leave unrelated Google fields intact, and use ETags to detect concurrent changes. Failed saves/deletes leave the event intact.
+- Recurring-event edits apply only to the selected occurrence. Read-only and special Google event types open as details; the Google link exposes advanced features.
+- Sharing controls are available for owned calendars. They update Google ACL permissions without sending a notification email. The recipient may need to subscribe through Google before that calendar appears in their list.
+- Local events are never uploaded automatically. The old title-based demo cleanup was removed because it could delete legitimate events.
+
+Google API references: [event pagination](https://developers.google.com/workspace/calendar/api/v3/reference/events/list), [patch semantics](https://developers.google.com/workspace/calendar/api/v3/reference/events/patch), [calendar sharing](https://developers.google.com/workspace/calendar/api/v3/reference/acl/insert).
+
+## Shared household setup
+
+The shared data API is implemented, but requires your Supabase project. Until configured, the app explicitly says lists save on this device.
+
+1. Run supabase.sql in your project's SQL editor.
+2. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to Vercel's server environment.
+3. Set HOUSEHOLD_MEMBERS to your Google email followed by krugemilee@gmail.com, separated by a comma.
+4. Set HOUSEHOLD_ID to a stable name such as home. Redeploy.
+
+Each member signs in with Google. The server verifies the connected account via Google's primary calendar ID and checks the configured email allowlist. No invitation is needed. Google sign-in alone never gives an arbitrary visitor access to your household. The service key is server-only; the database denies direct anonymous/authenticated-client access through RLS.
+
+Tasks and groceries use individual rows, so updating one item cannot replace the entire list. Both devices refresh shared lists every 15 seconds while Home is open. Simultaneous edits to the same item use the latest successful write. Device-only lists are not automatically uploaded or merged.
+
+## Home tools and limits
+
+Tasks support a due date; groceries support quantities. Both support editing names, checkoff, deletion, and clearing completed items. Recipes include methods, ingredient matching, and adding missing ingredients. Recipe directions are starting points, not personalized dietary plans.
+
+Meal balance is a transparent ingredient-category checklist. It does not claim to calculate calories or a validated health score from free text.
+
+The app does not implement full Google Calendar parity: Google remains the place to manage entire recurring series, attachments, invitations, conference creation, complex reminders, and advanced calendar settings.
