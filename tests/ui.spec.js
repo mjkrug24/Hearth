@@ -132,6 +132,8 @@ test('PocketBase settings UI connects, displays status, and disconnects', async(
   status: 200,
   json: { token: 'mock-pb-token', record: { id: 'usr-pb-1', email: 'family@example.com' } }
  }));
+ await page.route('**/api/hearth/snapshot',r=>r.fulfill({json:{household:{id:'test-home'},members:[],items:[],events:[],settings:{}}}));
+ await page.route('**/api/hearth/settings',r=>r.fulfill({json:{}}));
  await page.route('**/api/collections/hearth_settings/records*', r => r.fulfill({
   status: 200,
   json: { items: [] }
@@ -164,7 +166,8 @@ test('PocketBase settings UI connects, displays status, and disconnects', async(
  await expect(page.locator('#pbUserEmail')).toHaveText('family@example.com');
 
  await page.click('#pbDisconnectBtn');
- await expect(page.locator('#pbDisconnectedState')).toBeVisible();
+ await expect(page.locator('#authOverlay')).toBeVisible();
+ await expect(page.locator('#pbDisconnectedState')).not.toHaveClass('hidden');
  await expect(page.locator('#pbConnectedState')).not.toBeVisible();
 });
 
@@ -177,6 +180,8 @@ test('Booknook-style login overlay appears on first visit, supports sign in, gue
   status: 200,
   json: { token: 'mock-pb-token', record: { id: 'usr-pb-1', email: 'reader@example.com' } }
  }));
+ await page.route('**/api/hearth/snapshot',r=>r.fulfill({json:{household:{id:'test-home'},members:[],items:[],events:[],settings:{}}}));
+ await page.route('**/api/hearth/settings',r=>r.fulfill({json:{}}));
  await page.route('**/api/collections/hearth_settings/records*', r => r.fulfill({
   status: 200,
   json: { items: [] }

@@ -1,3 +1,5 @@
+import {installQuickAdd} from './quick-add.js';
+import {HouseholdStore} from './household-store.js';
 import {installHousehold} from './household-ui.js';
 import {kinds,applyChanges} from './household-model.js';
 import {dateKey,parseDay,addDays,clock,escapeHTML as esc,safeColor,normalizeEvent,occursOn,layoutEvents,monthDates} from './calendar-model.js';
@@ -27,7 +29,7 @@ function colorizeCalendars(calendars){const saved=read(calColorKey,{});return ca
 function applyLocalColor(){const saved=read(calColorKey,{});const pi=saved['local'];if(pi!=null&&calendarPalette[pi]){localCalendar.backgroundColor=calendarPalette[pi].bg;localCalendar.foregroundColor=calendarPalette[pi].fg;}}
 applyLocalColor();
 const settings=read('hearth-settings',{theme:read('hearth-dark-mode',false)?'dark':'system',view:'month'});
-const state={date:new Date(),mini:new Date(new Date().getFullYear(),new Date().getMonth(),1),view:settings.view||'month',app:settings.destination||'home',connected:false,configured:false,loading:false,mutating:false,events:[],calendars:[localCalendar],hidden:read('hearth-hidden-calendars',[]),editing:null,home:read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]}),shared:false,homeReady:false,account:'device',members:[],partner:null,verified:false,lastCalendarSync:null,lastHomeSync:null,lastError:'',mealWeek:addDays(new Date(),-((new Date().getDay()+6)%7))};
+const state={date:new Date(),mini:new Date(new Date().getFullYear(),new Date().getMonth(),1),view:settings.view||'month',app:settings.destination||'home',connected:false,configured:false,loading:false,mutating:false,events:[],calendars:[localCalendar],hidden:read('hearth-hidden-calendars',[]),editing:null,home:read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]}),shared:false,homeReady:false,homeAccount:'device',account:'device',members:[],partner:null,verified:false,lastCalendarSync:null,lastHomeSync:null,lastError:'',mealWeek:addDays(new Date(),-((new Date().getDay()+6)%7))};
 const allRecipes=()=>[...recipes,...homeItems('recipes')];
 const outbox=new Outbox();
 // Old synced data is never reused across Google accounts or uploaded on connection.
@@ -43,168 +45,21 @@ function toast(message){$('#toast').textContent=message;$('#toast').classList.re
 async function api(url,options={}){const r=await fetch(url,{cache:'no-store',credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...options.headers}});const data=r.status===204?null:await r.json().catch(()=>({error:'The service returned an unexpected response.'}));if(!r.ok){const error=new Error(data?.error||'Request failed');error.status=r.status;throw error;}return data;}
 const post=(url,body,method='POST')=>api(url,{method,body:JSON.stringify(body)});
 function notice(message=''){$('#calendarNotice').textContent=message;$('#calendarNotice').classList.toggle('hidden',!message);}
-// PocketBase Cross-Device Sync
-let settingsSyncTimeout=null;
-function syncSettingsToPocketBase(){
- if(!pb.isAuthenticated())return;
- clearTimeout(settingsSyncTimeout);
- settingsSyncTimeout=setTimeout(async()=>{
-  try{
-   await pb.saveSettings({
-    theme:settings.theme,
-    view:settings.view,
-    destination:state.app,
-    spouse:settings.spouse||'',
-    calendarColors:read(calColorKey,{}),
-    hiddenCalendars:state.hidden||[],
-    favorites:read('hearth-favorites-'+state.account,read('hearth-favorites-device',[]))
-   });
-  }catch(err){console.warn('PocketBase settings sync error:',err.message);}
- },300);
-}
-
-function applyPocketBaseSettings(data){
- if(!data||typeof data!=='object')return;
- let changed=false;
- if(data.theme&&data.theme!==settings.theme){settings.theme=data.theme;theme();changed=true;}
- if(data.view&&data.view!==settings.view){settings.view=data.view;state.view=data.view;if($('#defaultView'))$('#defaultView').value=data.view;if($('#viewSelect'))$('#viewSelect').value=data.view;changed=true;}
- if(data.destination&&data.destination!==state.app&&householdUI?.navigate){householdUI.navigate(data.destination,false);changed=true;}
- if(data.spouse!==undefined&&data.spouse!==settings.spouse){settings.spouse=data.spouse;if($('#spouseSetting'))$('#spouseSetting').value=data.spouse;changed=true;}
- if(data.calendarColors&&typeof data.calendarColors==='object'){write(calColorKey,data.calendarColors);applyLocalColor();state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));renderCalendars();changed=true;}
- if(Array.isArray(data.hiddenCalendars)){state.hidden=data.hiddenCalendars;write('hearth-hidden-calendars',state.hidden);renderCalendars();changed=true;}
- if(Array.isArray(data.favorites)){write('hearth-favorites-'+state.account,data.favorites);write('hearth-favorites-device',data.favorites);changed=true;}
- if(changed){write('hearth-settings',settings);render();renderDashboard();}
-}
-
-async function syncPocketBaseItem(item,remove=false){
- if(!pb.isAuthenticated())return;
- try{
-  const clientId=item.id;
-  if(remove){
-   const records=await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]);
-   for(const r of records)await pb.delete('hearth_items',r.id).catch(()=>{});
-  }else{
-   const details={...(item.details||{})};
-   for(const k of ['amount','servings','unit','aisle','recipeId','recipeSnapshot','repeat','priority','expires','rotation','skipped','nextId','scheduledDue','seriesAnchor','custom','ingredients','portions','steps','minutes'])if(item[k]!==undefined)details[k]=item[k];
-   const record={client_id:clientId,kind:item.kind,name:item.name||'',done:!!item.done,due:item.due||'',quantity:item.quantity||'',details,assignedTo:item.assignedTo||'',user:pb.user()?.id||null};
-   const existing=(await pb.getFullList('hearth_items',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
-   if(existing)await pb.update('hearth_items',existing.id,record);
-   else await pb.create('hearth_items',record);
-  }
- }catch(err){console.warn('PocketBase item sync error:',err.message);}
-}
-
-async function syncPocketBaseBatch(changes){
- if(!pb.isAuthenticated()||!Array.isArray(changes))return;
- for(const c of changes)await syncPocketBaseItem(c.item,!!c.remove).catch(()=>{});
-}
-
-async function syncPocketBaseEvent(event,remove=false){
- if(!pb.isAuthenticated()||event.googleCalendarId)return;
- try{
-  const clientId=event.id;
-  if(remove){
-   const records=await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]);
-   for(const r of records)await pb.delete('hearth_events',r.id).catch(()=>{});
-  }else{
-   const record={client_id:clientId,title:event.title||'',date:event.date||'',endDate:event.endDate||event.date||'',time:event.time||'',end:event.end||'',allDay:!!event.allDay,location:event.location||'',notes:event.notes||'',reminder:event.reminder||'',repeat:event.repeat||'none',repeatCount:Number(event.repeatCount)||0,timeZone:event.timeZone||'',user:pb.user()?.id||null};
-   const existing=(await pb.getFullList('hearth_events',{filter:`client_id="${clientId}"`}).catch(()=>[]))[0];
-   if(existing)await pb.update('hearth_events',existing.id,record);
-   else await pb.create('hearth_events',record);
-  }
- }catch(err){console.warn('PocketBase event sync error:',err.message);}
-}
-
-async function loadPocketBaseData(){
- if(!pb.isAuthenticated())return;
- try{
-  const pbSettingsRec=await pb.fetchSettings().catch(()=>null);
-  if(pbSettingsRec?.settings)applyPocketBaseSettings(pbSettingsRec.settings);
-  const items=await pb.fetchItems().catch(()=>[]);
-  if(items.length>0){
-   const grouped=Object.fromEntries(kinds.map(k=>[k,[]]));
-   for(const r of items){
-    const item={id:r.client_id||r.id,pb_id:r.id,kind:r.kind,name:r.name,done:!!r.done,due:r.due||'',quantity:r.quantity||'',assignedTo:r.assignedTo||'',...(r.details||{})};
-    if(grouped[r.kind])grouped[r.kind].push(item);
-   }
-   state.home=grouped;
-   localStorage.setItem('hearth-home',JSON.stringify(state.home));
-   renderHome();renderDashboard();
-  }
-  const events=await pb.fetchEvents().catch(()=>[]);
-  if(events.length>0){
-   const pbEvents=events.map(e=>normalizeEvent({id:e.client_id||e.id,pb_id:e.id,calendar:'local',googleCalendarId:null,title:e.title,date:e.date,endDate:e.endDate,time:e.time,end:e.end,allDay:e.allDay,location:e.location,notes:e.notes,reminder:e.reminder,repeat:e.repeat,repeatCount:e.repeatCount,timeZone:e.timeZone}));
-   const googleEvents=state.events.filter(e=>e.googleCalendarId);
-   state.events=[...googleEvents,...pbEvents];
-   state.localEvents=pbEvents;
-   localStorage.setItem('hearth-events',JSON.stringify(pbEvents));
-   render();
-  }
- }catch(err){console.warn('PocketBase load error:',err.message);}
-}
-
-function setupPocketBaseSubscriptions(){
- if(!pb.isAuthenticated())return;
- pb.connectRealtime();
- pb.subscribe('hearth_settings',payload=>{
-  if(payload.action==='create'||payload.action==='update'){
-   applyPocketBaseSettings(payload.record?.settings);
-   toast('Settings updated from another device');
-  }
- });
- pb.subscribe('hearth_items',payload=>{
-  const r=payload.record;if(!r)return;
-  const clientId=r.client_id||r.id;
-  if(payload.action==='delete'){
-   for(const k of kinds)state.home[k]=(state.home[k]||[]).filter(x=>x.id!==clientId&&x.pb_id!==r.id);
-  }else{
-   const item={id:clientId,pb_id:r.id,kind:r.kind,name:r.name,done:!!r.done,due:r.due||'',quantity:r.quantity||'',assignedTo:r.assignedTo||'',...(r.details||{})};
-   const kind=r.kind;
-   if(state.home[kind]){
-    const idx=state.home[kind].findIndex(x=>x.id===clientId||x.pb_id===r.id);
-    if(idx>=0)state.home[kind][idx]=item;else state.home[kind].push(item);
-   }
-  }
-  localStorage.setItem('hearth-home',JSON.stringify(state.home));
-  renderHome();renderDashboard();
- });
- pb.subscribe('hearth_events',payload=>{
-  const r=payload.record;if(!r)return;
-  const clientId=r.client_id||r.id;
-  if(payload.action==='delete'){
-   state.events=state.events.filter(e=>e.id!==clientId&&e.pb_id!==r.id);
-   state.localEvents=state.localEvents.filter(e=>e.id!==clientId&&e.pb_id!==r.id);
-  }else{
-   const ev=normalizeEvent({id:clientId,pb_id:r.id,calendar:'local',googleCalendarId:null,title:r.title,date:r.date,endDate:r.endDate,time:r.time,end:r.end,allDay:r.allDay,location:r.location,notes:r.notes,reminder:r.reminder,repeat:r.repeat,repeatCount:r.repeatCount,timeZone:r.timeZone});
-   state.events=state.events.filter(e=>e.id!==clientId&&e.pb_id!==r.id);
-   state.events.push(ev);
-   state.localEvents=state.localEvents.filter(e=>e.id!==clientId&&e.pb_id!==r.id);
-   state.localEvents.push(ev);
-  }
-  localStorage.setItem('hearth-events',JSON.stringify(state.localEvents));
-  render();renderDashboard();
- });
-}
-
-async function uploadDeviceDataToPocketBase(){
- if(!pb.isAuthenticated())throw Error('Not logged into PocketBase.');
- await pb.saveSettings({
-  theme:settings.theme,
-  view:settings.view,
-  destination:state.app,
-  spouse:settings.spouse||'',
-  calendarColors:read(calColorKey,{}),
-  hiddenCalendars:state.hidden||[],
-  favorites:read('hearth-favorites-'+state.account,read('hearth-favorites-device',[]))
- });
- for(const k of kinds){
-  for(const item of homeItems(k))await syncPocketBaseItem(item,false);
- }
- for(const ev of (state.localEvents||[]))await syncPocketBaseEvent(ev,false);
-}
+// Household identity is independent of the connected Google calendar.
+let householdStore=null,unsubscribeHousehold=null,applyingSettings=false;
+function syncSettingsToPocketBase(){if(applyingSettings||!householdStore)return;householdStore.saveSettings({theme:settings.theme,view:settings.view,spouse:settings.spouse||'',calendarColors:read(calColorKey,{}),hiddenCalendars:state.hidden,favorites:read('hearth-favorites-'+state.homeAccount,[])});householdStore.flush();}
+function applyPocketBaseSettings(data){if(!data)return;applyingSettings=true;try{if(['light','dark','system'].includes(data.theme)){settings.theme=data.theme;theme();}if(['month','week','day','schedule'].includes(data.view)){settings.view=data.view;$('#defaultView').value=data.view;}if(data.spouse!==undefined)settings.spouse=data.spouse;if(data.calendarColors&&typeof data.calendarColors==='object'){write(calColorKey,data.calendarColors);applyLocalColor();state.calendars=colorizeCalendars(state.calendars);renderCalendars();}if(Array.isArray(data.hiddenCalendars)){state.hidden=data.hiddenCalendars;write('hearth-hidden-calendars',state.hidden);}if(Array.isArray(data.favorites))write('hearth-favorites-'+state.homeAccount,data.favorites);write('hearth-settings',settings);}finally{applyingSettings=false;}}
+function renderHouseholdStore(){if(!householdStore?.active)return;state.shared=true;state.homeAccount=householdStore.key;state.members=(householdStore.data.members||[]).map(m=>m.email);state.home=Object.fromEntries(kinds.map(k=>[k,householdStore.view('items').filter(i=>i.kind===k)]));state.localEvents=householdStore.view('events').map(e=>normalizeEvent({...e,calendar:'local',googleCalendarId:null}));state.events=[...state.events.filter(e=>e.googleCalendarId),...state.localEvents];state.homeSyncError=householdStore.error||'';state.homePending=householdStore.data.queue.length+(householdStore.data.pendingSettings?1:0);state.homeReady=!!householdStore.data.household;renderHome();render();renderSyncDetails();updatePocketBaseUI();}
+function activateHousehold(){const key=pb.getUrl()+':'+pb.user()?.id;if(householdStore?.identity===key)return;householdStore?.close();householdStore=new HouseholdStore(pb,localStorage,renderHouseholdStore);householdStore.identity=key;renderHouseholdStore();}
+function leaveHousehold(){householdStore?.close();householdStore=null;unsubscribeHousehold?.();unsubscribeHousehold=null;state.shared=false;state.homeAccount='device';state.members=[];state.homePending=0;state.homeSyncError='';restoreDeviceHome();state.localEvents=read('hearth-events',[]).map(normalizeEvent);state.events=[...state.events.filter(e=>e.googleCalendarId),...state.localEvents];renderHome();render();}
+async function loadPocketBaseData(){if(!pb.isAuthenticated())return;activateHousehold();const store=householdStore;try{await store.flush();await store.refresh();if(store!==householdStore)return;if(!store.data.pendingSettings)applyPocketBaseSettings(store.data.settings);state.lastHomeSync=Date.now();await householdUI.migrateShared();}catch(e){state.homeSyncError=e.status===404?'Install the Hearth household migration and hooks on your server.':e.message;renderHome();}renderSyncDetails();}
+function setupPocketBaseSubscriptions(){activateHousehold();unsubscribeHousehold?.();unsubscribeHousehold=pb.subscribe('*',()=>loadPocketBaseData());pb.connectRealtime();}
+async function householdBatch(label,changes,expected=null){const store=householdStore;if(!store)throw Error('Sign in to your Hearth account.');store.enqueue('items',changes,label,{expected});await store.flush();if(store.data.queue[0]?.status==='failed')throw Error(store.data.queue[0].error);}
+async function uploadDeviceDataToPocketBase(){if(!householdStore)throw Error('Sign in first.');await loadPocketBaseData();const local=read('hearth-home',{}),existing=householdStore.view('items');const changes=kinds.flatMap(k=>(local[k]||[]).filter(i=>!existing.some(x=>x.id===i.id)).map(i=>({item:{...i,kind:k,assignedTo:state.members.includes(i.assignedTo)?i.assignedTo:'',rotation:(i.rotation||[]).filter(m=>state.members.includes(m))}})));for(let i=0;i<changes.length;i+=200)await householdBatch('Import device data',changes.slice(i,i+200));toast(changes.length?'Device lists imported; matching IDs were kept.':'These device lists are already imported.');}
 
 function updatePocketBaseUI(){
  const isAuth=pb.isAuthenticated();
+ if($('#householdMembers')){$('#householdName').textContent=householdStore?.data.household?.name||'Connecting to your household…';$('#householdMembers').innerHTML=(householdStore?.data.members||[]).map(m=>'<li>'+esc(m.email)+'</li>').join('');$('#createInvite').classList.toggle('hidden',householdStore?.data.household?.owner!==pb.user()?.id);}
  const accountText=$('#pbAccountText'),accountBtn=$('#pbAccountBtn');
  if(accountText){
   if(isAuth){
@@ -248,8 +103,8 @@ async function sync(){
   finally{if(sequence===syncSequence){state.loading=false;$('#connectBtn').disabled=false;}}
 }
 async function initConnection(){
-  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());state.shared=false;restoreDeviceHome();}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.members=s.members||[];state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){state.events=[];await sync();await flushQueue();}}
-  catch{const cached=read('hearth-account-cache',null);if(cached){Object.assign(state,{account:cached.account,calendars:colorizeCalendars(cached.calendars),events:cached.events,connected:true,shared:cached.shared,home:cached.home||state.home,members:cached.members||[],partner:cached.partner,verified:false});$('#syncStatus').textContent='Offline · cached calendars';$('#connectBtn').textContent='Retry sync';}else $('#syncStatus').textContent='Offline · local calendar';}
+  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){state.events=[];await sync();await flushQueue();}}
+  catch{const cached=read('hearth-account-cache',null);if(cached){Object.assign(state,{account:cached.account,calendars:colorizeCalendars(cached.calendars),events:[...cached.events.filter(e=>e.googleCalendarId),...state.localEvents],connected:true,partner:cached.partner,verified:false});$('#syncStatus').textContent='Offline · cached calendars';$('#connectBtn').textContent='Retry sync';}else $('#syncStatus').textContent='Offline · local calendar';}
   await loadHome();render();
 }
 function renderCalendars(){
@@ -308,35 +163,17 @@ async function saveEvent(ev){
  finally{state.mutating=false;$('#saveEventBtn').disabled=false;$('#deleteBtn').disabled=false;$('#connectBtn').disabled=false;}
 }
 async function deleteEvent(){
-const e=state.editing;if(!e)return;
+const e=state.editing;if(!e)return;if(householdStore&&!e.googleCalendarId){const parent=state.localEvents.find(x=>x.id===e.localParentId);const changes=parent?[{item:{...parent,excludedDates:[...new Set([...(parent.excludedDates||[]),e.occurrenceDate])]}}]:[{item:e,remove:true}];householdStore.enqueue('events',changes,'Delete '+e.title);await householdStore.flush();$('#eventDialog').close();return;}
  if(e.pending)return toast('Sync or discard this pending edit in Sync details before deleting it.');
  try{deferDelete({type:'event',item:e,before:e,account:state.connected?state.account:'device'});$('#eventDialog').close();render();}catch(error){$('#eventError').textContent=error.message;}
 }
 function theme(){const dark=settings.theme==='dark'||settings.theme==='system'&&matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=dark?'dark':'light';$('#themeSelect').value=settings.theme;write('hearth-settings',settings);syncSettingsToPocketBase();}
 function openSettings(){updatePocketBaseUI();$('#defaultView').value=settings.view;$('#accountStatus').textContent=state.connected?'Google Calendar is connected in this browser.':state.configured?'Sign in with Google to load your calendars.':'Google connection needs deployment configuration.';$('#signInBtn').textContent=state.connected?'Switch Google account':'Connect Google';$('#disconnectBtn').classList.toggle('hidden',!state.connected);$('#storageExplanation').textContent=state.shared?'Recipes, meals, tasks, pantry, and shopping are shared with your household and refresh while a household screen is open.':'Household lists and recipes currently save on this device. Connect a configured household to share them across devices.';$('#timezoneLabel').textContent=zone;$('#settingsDialog').showModal();}
 function restoreDeviceHome(){state.home=read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]});for(const kind of kinds)state.home[kind]=(state.home[kind]||[]).map(item=>({...item,id:item.id||crypto.randomUUID(),kind}));}
-async function loadHome(){
- const account=state.account,generation=state.homeGeneration||0;
- try{const result=await api('/api/household');if(state.account!==account||generation!==(state.homeGeneration||0)||state.flushing)return;
- const wasShared=state.shared;state.shared=result.shared;
- if(result.shared){state.home=Object.fromEntries(kinds.map(kind=>[kind,result.items.filter(x=>x.kind===kind)]));if(result.members)state.members=result.members;state.lastHomeSync=Date.now();state.lastError='';cacheAccount();await householdUI.migrateShared();}else if(wasShared)restoreDeviceHome();
- }catch(e){if(state.account!==account)return;state.lastError=e.message;if(e.status===401||e.status===403){state.shared=false;restoreDeviceHome();}else if(state.shared)toast('Household refresh failed: '+e.message);}
- state.homeReady=true;renderHome();
-}
-function homeItems(kind){let home=state.home;for(const op of outbox.forAccount(state.shared?state.account:'device')){if(op.status==='failed')break;if(op.type==='batch')home=applyChanges(home,op.changes.map(c=>({...c,item:{...c.item,pending:true}})));if(op.type==='home')home=applyChanges(home,[{item:{...op.item,pending:true},remove:op.action==='delete'}]);}return home[kind]||[];}
+async function loadHome(){if(pb.isAuthenticated())await loadPocketBaseData();else{state.homeReady=true;renderHome();}}
+function homeItems(kind){let home=state.home;if(!state.shared)for(const op of outbox.forAccount('device')){if(op.status==='failed')break;if(op.type==='batch')home=applyChanges(home,op.changes);if(op.type==='home')home=applyChanges(home,[{item:{...op.item,pending:true},remove:op.action==='delete'}]);}return home[kind]||[];}
 function renderHome(){householdUI.render();}
-async function homeChange(kind,item,remove=false){
- state.homeGeneration=(state.homeGeneration||0)+1;const homeAccount=state.account;item={...item,kind};const old=homeItems(kind).find(x=>x.id===item.id);
- if(remove){deferDelete({type:'home',item,before:old||item,account:state.shared?state.account:'device',shared:state.shared});if(pb.isAuthenticated())syncPocketBaseItem(item,true);renderHome();return;}
- const actor=state.shared?state.account:'device';
- item={...item,createdBy:old?.createdBy||actor,updatedBy:actor,completedBy:item.done?(old?.completedBy||actor):null};
- try{
-  if(state.shared){try{if(!navigator.onLine||outbox.forAccount(homeAccount).some(o=>o.type!=='event'))throw new TypeError('Offline');const result=await post('/api/household',{...item,account:state.account});if(state.account!==homeAccount)return;item=result.items?.[0]||item;rebasePending(result.items||[]);}catch(e){if(e.status&&e.status<500)throw e;enqueue({type:'home',action:'upsert',item,before:old,account:homeAccount,shared:true});renderHome();return;}}
-  const next=applyChanges(state.home,[{item}]);if(!state.shared)localStorage.setItem('hearth-home',JSON.stringify(next));state.home=next;
-  if(pb.isAuthenticated())syncPocketBaseItem(item,false);
-  if(state.shared)cacheAccount();renderHome();
- }catch(e){state.lastError=e.message;toast('List change could not be saved: '+e.message);renderHome();throw e;}
-}
+async function homeChange(kind,item,remove=false){item={...item,kind};if(state.shared){if(remove){const op=householdStore.enqueue('items',[{item,remove:true}],'Delete '+item.name,{delay:10000});$('#undoBar span').textContent='Removed '+item.name;$('#undoBar').classList.remove('hidden');$('#undoDelete').dataset.id=op.operationId;setTimeout(()=>householdStore?.flush(),10100);return;}await householdBatch('Save '+item.name,[{item}]);return;}if(remove){deferDelete({type:'home',item,before:item,account:'device'});renderHome();return;}const next=applyChanges(state.home,[{item}]);localStorage.setItem('hearth-home',JSON.stringify(next));state.home=next;renderHome();}
 for(const [button,kind] of [['#clearTasks','tasks'],['#clearGroceries','groceries']])$(button).onclick=async()=>{const completed=state.home[kind].filter(x=>x.done);if(!completed.length)return toast('No completed items to clear.');if(!confirm('Remove '+completed.length+' completed items?'))return;$(button).disabled=true;try{for(const item of completed)await homeChange(kind,item,true);}catch{}finally{$(button).disabled=false;}};
 $('#mealForm').onsubmit=e=>{e.preventDefault();const groups=mealGroups($('#mealInput').value);$('#mealResult').innerHTML=groups.map(g=>`<div>${g.found.length?'✓':'○'} ${esc(g.name)}: ${g.found.length?esc(g.found.join(', ')):'not recognized'}</div>`).join('')+'<p class="muted">Missing recognition is not proof an ingredient is absent. Use this as a planning checklist; adjust portions to your needs.</p>';};
 $('#shareForm').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('.primary');button.disabled=true;try{await post('/api/google/share',{calendar:shareCalendar.id,email:$('#shareEmail').value,role:$('#shareRole').value});$('#shareDialog').close();toast('Google Calendar sharing updated');}catch(e){$('#shareError').textContent=e.message;}finally{button.disabled=false;}};
@@ -348,23 +185,23 @@ document.addEventListener('click',async e=>{
  if(b?.dataset.day){state.date=parseDay(b.dataset.day);state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();return;}
  if(b?.dataset.share){shareCalendar=state.calendars.find(c=>c.id===b.dataset.share);$('#shareName').textContent=shareCalendar.name;$('#shareEmail').value=state.partner||settings.spouse||'';$('#shareRole').value='reader';$('#shareError').textContent='';$('#shareDialog').showModal();loadSharing();return;}
  if(b?.dataset.colorFor){const calId=b.dataset.colorFor;const existing=$('.color-palette-popover');const wasSame=existing&&existing.dataset.calId===calId;existing?.remove();if(wasSame)return;const pop=document.createElement('div');pop.className='color-palette-popover';pop.dataset.calId=calId;pop.innerHTML=calendarPalette.map((p,i)=>`<button type="button" class="palette-dot${safeColor((state.calendars.find(c=>c.id===calId)||localCalendar).backgroundColor)===p.bg?' selected':''}" data-pick-color="${i}" data-pick-cal="${esc(calId)}" style="background:${p.bg}" aria-label="Color ${i+1}" title="Select color"></button>`).join('');b.closest('.calendar-row').appendChild(pop);return;}
- if(b?.dataset.pickColor!=null){const calId=b.dataset.pickCal,pi=Number(b.dataset.pickColor);const saved=read(calColorKey,{});saved[calId]=pi;write(calColorKey,saved);$('.color-palette-popover')?.remove();if(calId==='local'){applyLocalColor();const localInState=state.calendars.find(c=>c.id==='local');if(localInState){localInState.backgroundColor=localCalendar.backgroundColor;localInState.foregroundColor=localCalendar.foregroundColor;}}else{state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));}renderCalendars();render();renderDashboard();return;}
+ if(b?.dataset.pickColor!=null){const calId=b.dataset.pickCal,pi=Number(b.dataset.pickColor);const saved=read(calColorKey,{});saved[calId]=pi;write(calColorKey,saved);syncSettingsToPocketBase();$('.color-palette-popover')?.remove();if(calId==='local'){applyLocalColor();const localInState=state.calendars.find(c=>c.id==='local');if(localInState){localInState.backgroundColor=localCalendar.backgroundColor;localInState.foregroundColor=localCalendar.foregroundColor;}}else{state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));}renderCalendars();render();renderDashboard();return;}
  if(b?.dataset.recipe){openRecipe(b.dataset.recipe);return;}
- if(b?.dataset.deleteItem||b?.dataset.editItem){const kind=b.dataset.kind,item=homeItems(kind).find(x=>x.id===(b.dataset.deleteItem||b.dataset.editItem));if(!item)return;if(b.dataset.deleteItem){try{await homeChange(kind,item,true);}catch{}}else{editingItem={...item,kind};$('#itemName').value=item.name;$('#itemDue').value=item.due||'';$('#itemQuantity').value=item.quantity||'';$('#taskFields').classList.toggle('hidden',kind!=='tasks');$('#inventoryFields').classList.toggle('hidden',!['pantry','groceries'].includes(kind));$('#itemAssignee').innerHTML='<option value="">Anyone</option>'+[...new Set([state.account,...state.members,settings.spouse].filter(Boolean))].map(email=>`<option value="${esc(email)}">${esc(person(email))}</option>`).join('');$('#itemAssignee').value=item.assignedTo||'';$('#itemPriority').value=item.priority||'normal';$('#itemRepeat').value=item.repeat||'none';$('#itemAmount').value=item.amount||'';$('#itemUnit').value=item.unit||'each';householdUI.prepareItem(item);$('#itemError').textContent='';$('#itemDialog').showModal();}return;}
+ if(b?.dataset.deleteItem||b?.dataset.editItem){const kind=b.dataset.kind,item=homeItems(kind).find(x=>x.id===(b.dataset.deleteItem||b.dataset.editItem));if(!item)return;if(b.dataset.deleteItem){try{await homeChange(kind,item,true);}catch{}}else{editingItem={...item,kind};$('#itemName').value=item.name;$('#itemDue').value=item.due||'';$('#itemQuantity').value=item.quantity||'';$('#taskFields').classList.toggle('hidden',kind!=='tasks');$('#inventoryFields').classList.toggle('hidden',!['pantry','groceries'].includes(kind));$('#itemAssignee').innerHTML='<option value="">Anyone</option>'+[...new Set((state.shared?state.members:['device']))].map(email=>`<option value="${esc(email)}">${esc(person(email))}</option>`).join('');$('#itemAssignee').value=item.assignedTo||'';$('#itemPriority').value=item.priority||'normal';$('#itemRepeat').value=item.repeat||'none';$('#itemAmount').value=item.amount||'';$('#itemUnit').value=item.unit||'each';householdUI.prepareItem(item);$('#itemError').textContent='';$('#itemDialog').showModal();}return;}
  const day=e.target.closest('[data-new-day]');if(day){openEvent(null,day.dataset.newDay);return;}
  const timeline=e.target.closest('[data-time-day]');if(timeline){const min=Math.max(0,Math.min(1425,Math.floor((e.clientY-timeline.getBoundingClientRect().top)/15)*15));openEvent(null,timeline.dataset.timeDay,String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0'));}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')$('.color-palette-popover')?.remove();});
-document.addEventListener('change',async e=>{if(e.target.dataset.calendar){const id=e.target.dataset.calendar;state.hidden=state.hidden.filter(x=>x!==id);if(!e.target.checked)state.hidden.push(id);write('hearth-hidden-calendars',state.hidden);render();renderDashboard();}if(e.target.dataset.check){const kind=e.target.dataset.kind,item=homeItems(kind).find(x=>x.id===e.target.dataset.check);try{await completeItem(kind,item,e.target.checked);}catch(error){toast(error.message);}}});
+document.addEventListener('change',async e=>{if(e.target.dataset.calendar){const id=e.target.dataset.calendar;state.hidden=state.hidden.filter(x=>x!==id);if(!e.target.checked)state.hidden.push(id);write('hearth-hidden-calendars',state.hidden);syncSettingsToPocketBase();render();renderDashboard();}if(e.target.dataset.check){const kind=e.target.dataset.kind,item=homeItems(kind).find(x=>x.id===e.target.dataset.check);try{await completeItem(kind,item,e.target.checked);}catch(error){toast(error.message);}}});
 $('#todayBtn').onclick=()=>{state.date=new Date();state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();};
 $('#prevBtn').onclick=()=>navigate(-1);$('#nextBtn').onclick=()=>navigate(1);
 $('#miniPrev').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.mini.getMonth()-1,1);renderMini();};$('#miniNext').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.mini.getMonth()+1,1);renderMini();};
 $('#viewSelect').onchange=e=>{state.view=e.target.value;$('#calendarContent').scrollTop=0;render();if(['day','week'].includes(state.view))$('#calendarContent').scrollTop=420;sync();};
 $('#searchInput').oninput=render;$('#createBtn').onclick=()=>openEvent();$('#allDay').onchange=toggleAllDay;$('#eventForm').onsubmit=saveEvent;$('#deleteBtn').onclick=deleteEvent;
 $('#connectBtn').onclick=()=>state.connected?sync():location.assign('/auth/google');$('#signInBtn').onclick=()=>location.assign('/auth/google');
-$('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.shared=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');restoreDeviceHome();state.events=[...state.localEvents];state.calendars=[localCalendar];$('#settingsDialog').close();await initConnection();toast('Disconnected. Pending Google changes stay bound to their original account.');}catch(e){toast(e.message);}};
+$('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');state.events=[...state.localEvents];state.calendars=[localCalendar];$('#settingsDialog').close();await initConnection();toast('Disconnected. Pending Google changes stay bound to their original account.');}catch(e){toast(e.message);}};
 $('#themeBtn').onclick=()=>{settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';theme();};$('#themeSelect').onchange=e=>{settings.theme=e.target.value;theme();};matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
-$('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);};
+$('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);syncSettingsToPocketBase();};
 $('#settingsBtn').onclick=$('#accountBtn').onclick=openSettings;
 $('#menuBtn').onclick=()=>document.body.classList.toggle(matchMedia('(max-width:700px)').matches?'sidebar-open':'sidebar-closed');
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea,select,dialog')||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key.toLowerCase()==='t')$('#todayBtn').click();if(e.key.toLowerCase()==='c')openEvent();});
@@ -374,8 +211,8 @@ $('#itemForm').onsubmit=async e=>{e.preventDefault();const button=e.target.query
 
 const oauthResult=new URLSearchParams(location.search).get('sync');if(oauthResult){history.replaceState({},'',location.pathname);if(oauthResult!=='connected')toast('Google connection: '+oauthResult.replaceAll('-',' '));}
 // Planning, account-bound offline writes, and delayed deletion.
-function person(email){return email==='device'?'Me (this device)':email===state.account?'Me':email===state.partner?'Spouse':email;}
-function cacheAccount(){if(state.connected&&state.account!=='device')write('hearth-account-cache',{account:state.account,calendars:state.calendars,events:state.events,home:state.home,shared:state.shared,members:state.members,partner:state.partner,lastCalendarSync:state.lastCalendarSync,lastHomeSync:state.lastHomeSync});}
+function person(email){return email==='device'?'Me (this device)':email===pb.user()?.email?'Me':email===state.partner?'Spouse':email;}
+function cacheAccount(){if(state.connected&&state.account!=='device')write('hearth-account-cache',{account:state.account,calendars:state.calendars,events:state.events.filter(e=>e.googleCalendarId),partner:state.partner,lastCalendarSync:state.lastCalendarSync,lastHomeSync:state.lastHomeSync});}
 function enqueue(op){const row=outbox.add(op);state.lastError='';renderSyncDetails();return row;}
 function applyLocalEvent(item,remove=false){
  if(item.localParentId){state.events=state.events.map(e=>e.id===item.localParentId?{...e,excludedDates:[...new Set([...(e.excludedDates||[]),item.occurrenceDate])]}:e);}
@@ -385,20 +222,22 @@ async function persistEvent(item,before){
  const waiting=outbox.forAccount(state.account).find(op=>op.type==='event'&&op.action==='upsert'&&op.item.id===item.id);
  if(waiting){if(waiting.status==='sending')throw Error('This event is being sent. Try again shortly.');waiting.item={...waiting.item,...item,pending:undefined};waiting.status='pending';waiting.error='';outbox.persist();toast('Pending change updated');return;}
  const data={...item,clientEventId:item.clientEventId||crypto.randomUUID().replaceAll('-',''),account:state.account};
- if(!state.connected){applyLocalEvent(data);toast('Saved on this device');return;}
+ if(!state.connected||!data.googleCalendarId){if(householdStore){const changes=[{item:data}];if(data.localParentId){const parent=state.localEvents.find(e=>e.id===data.localParentId);if(parent)changes.unshift({item:{...parent,excludedDates:[...new Set([...(parent.excludedDates||[]),data.occurrenceDate])]}});}householdStore.enqueue('events',changes,'Save '+data.title);await householdStore.flush();toast('Event saved to Hearth');}else{applyLocalEvent(data);toast('Saved on this device');}return;}
  try{if(!navigator.onLine||!state.verified)throw new TypeError('Offline');const result=await post('/api/google/events',data);const saved=normalizeEvent(result.event);state.events=state.events.filter(e=>e.id!==before?.id&&e.id!==saved.id);state.events.push(saved);cacheAccount();toast('Saved to Google Calendar');if(data.repeat&&data.repeat!=='none')setTimeout(sync,0);}
  catch(e){if(e.status&&e.status<500&&e.status!==429)throw e;enqueue({type:'event',action:'upsert',item:data,before,account:state.account});toast('Saved offline · waiting to sync');render();}
 }
 function deferDelete(op){const row=enqueue({...op,action:'delete',notBefore:Date.now()+10000});$('#undoBar span').textContent='Removed “'+(op.item.title||op.item.name)+'” · undo before it syncs';$('#undoBar').classList.remove('hidden');$('#undoDelete').dataset.id=row.id;setTimeout(()=>{flushQueue();renderSyncDetails();},10100);}
 function rebasePending(items){let changed=false;for(const op of outbox.forAccount(state.account).filter(o=>o.type==='batch')){for(const expected of op.expected){const saved=items.find(i=>i.id===expected.id);if(saved){expected.updated_at=saved.updated_at;changed=true;}}}if(changed)outbox.persist();}
 async function flushQueue(){
+ await householdStore?.flush();
  if(state.flushing||state.mutating)return;state.flushing=true;
  try{
-  await outbox.flush('device',async op=>{if(op.type==='event'){applyLocalEvent(op.item,op.action==='delete');}else{const next=applyChanges(read('hearth-home',{}),[{item:op.item,remove:op.action==='delete'}]);localStorage.setItem('hearth-home',JSON.stringify(next));if(!state.shared)state.home=next;}},()=>{render();renderHome();});
+  await outbox.flush('device',async op=>{if(op.type==='event'){if(state.shared){const events=read('hearth-events',[]).filter(e=>e.id!==op.item.id);if(op.action!=='delete')events.push(op.item);localStorage.setItem('hearth-events',JSON.stringify(events));}else applyLocalEvent(op.item,op.action==='delete');}else{const next=applyChanges(read('hearth-home',{}),[{item:op.item,remove:op.action==='delete'}]);localStorage.setItem('hearth-home',JSON.stringify(next));if(!state.shared)state.home=next;}},()=>{render();renderHome();});
   if(!navigator.onLine||!state.connected)return;
   if(!outbox.forAccount(state.account).length)return;
   const identity=await api('/api/google/status');if(!identity.connected||identity.account&&identity.account!==state.account){state.lastError='Reconnect the account that owns these pending changes.';return;}state.verified=true;
   await outbox.flush(state.account,async op=>{
+   if(op.type!=='event')throw Error('Legacy household edit retained. Export or resolve it before migrating this queue.');
    if(op.type==='batch')return post('/api/household/batch',{operationId:op.id,account:op.account,changes:op.changes,expected:op.expected});
    if(op.type==='event'){if(op.action==='delete')return post('/api/google/events/'+encodeURIComponent(op.item.googleEventId)+'?calendar='+encodeURIComponent(op.item.googleCalendarId),{etag:op.item.etag,account:op.account},'DELETE');return post('/api/google/events',{...op.item,account:op.account});}
    return post('/api/household',{...op.item,account:op.account},op.action==='delete'?'DELETE':'POST');
@@ -414,7 +253,8 @@ function renderSyncDetails(){
  const relevant=outbox.rows.filter(o=>o.account==='device'||o.account===state.account),other=outbox.rows.length-relevant.length;
  if(!$('#syncDetails'))return;
  $('#syncDetails').innerHTML='<p>Network: '+(navigator.onLine?'online':'offline')+'</p><p>Calendar: '+(state.lastCalendarSync?esc(new Date(state.lastCalendarSync).toLocaleString()):'not synced this visit')+'</p><p>Household: '+(state.lastHomeSync?esc(new Date(state.lastHomeSync).toLocaleString()):state.shared?'not synced this visit':'device-only mode')+'</p>'+ (state.lastError?'<p class="error">'+esc(state.lastError)+'</p>':'')+relevant.map(op=>`<div class="queue-row"><strong>${esc(op.item.title||op.item.name)}</strong><p>${esc(op.action+' · '+op.status+(op.error?' · '+op.error:''))}</p>${op.status!=='sending'?`<button class="button" data-discard="${op.id}">${op.action==='delete'?'Undo deletion':'Discard pending edit'}</button>`:''}</div>`).join('')+(!relevant.length?'<p>No pending changes.</p>':'')+(other?'<p>Changes for another account remain safely queued. Sign in to that account to manage them.</p>':'');
- const undo=outbox.rows.find(o=>o.id===$('#undoDelete').dataset.id);$('#undoBar').classList.toggle('hidden',!undo||undo.status==='sending');
+ if(householdStore){$('#syncDetails').insertAdjacentHTML('beforeend','<h3>Hearth household</h3>'+(state.homeSyncError?'<p class="error">'+esc(state.homeSyncError)+'</p>':'')+householdStore.data.queue.map(op=>'<div class="queue-row"><strong>'+esc(op.label)+'</strong><p>'+esc(op.error||'Waiting to sync')+'</p><button class="button" data-discard="'+op.operationId+'">Discard this and dependent changes</button></div>').join(''));}
+ const undo=outbox.rows.find(o=>o.id===$('#undoDelete').dataset.id)||householdStore?.data.queue.find(o=>o.operationId===$('#undoDelete').dataset.id);$('#undoBar').classList.toggle('hidden',!undo||undo.status==='sending');
  if($('#syncDetailsButton'))$('#syncDetailsButton').textContent='Sync details'+(relevant.length?' ('+relevant.length+' pending)':'');
 }
 function renderDashboard(){householdUI.dashboard();}
@@ -427,12 +267,12 @@ function decorateTimedEvents(){for(const el of $$('.timed-event')){const event=d
 $('.sync-card').insertAdjacentHTML('beforeend','<button class="text-button" id="syncDetailsButton">Sync details</button>');
 $('#settingsDialog').insertAdjacentHTML('beforeend','<label>Spouse Google email<input id="spouseSetting" type="email" placeholder="your-spouse@gmail.com"></label><p class="muted">Used by your calendar sharing switch. Household membership is verified by the server configuration.</p>');
 $('#spouseSetting').value=settings.spouse||state.partner||'';
-$('#spouseSetting').onchange=e=>{if(e.target.validity.valid){settings.spouse=e.target.value.trim().toLowerCase();write('hearth-settings',settings);}};
+$('#spouseSetting').onchange=e=>{if(e.target.validity.valid){settings.spouse=e.target.value.trim().toLowerCase();write('hearth-settings',settings);syncSettingsToPocketBase();}};
 $('#syncDetailsButton').onclick=()=>{renderSyncDetails();$('#syncDialog').showModal();};
 $('#retryQueue').onclick=async()=>{for(const op of outbox.rows.filter(o=>[state.account,'device'].includes(o.account))){if(op.status==='failed'&&(op.type==='batch'||op.error?.includes('changed in Google')))continue;op.status='pending';op.error='';}outbox.persist();await flushQueue();};
 $('#refreshAll').onclick=async()=>{await sync();await loadHome();renderSyncDetails();};
 $('#undoDelete').onclick=()=>undoOperation($('#undoDelete').dataset.id);
-function undoOperation(id){const op=outbox.rows.find(x=>x.id===id);if(!op||op.status==='sending')return toast('This change is already being sent.');outbox.remove(id);render();renderHome();toast(op.action==='delete'?'Deletion undone':'Pending change discarded');}
+function undoOperation(id){if(householdStore?.data.queue.some(o=>o.operationId===id)){try{householdStore.discard(id);$('#undoBar').classList.add('hidden');toast('Pending changes discarded');}catch(e){toast(e.message);}return;}const op=outbox.rows.find(x=>x.id===id);if(!op||op.status==='sending')return toast('This change is already being sent.');outbox.remove(id);render();renderHome();toast(op.action==='delete'?'Deletion undone':'Pending change discarded');}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;
  if(b.dataset.discard){undoOperation(b.dataset.discard);return;}
  if(b.dataset.planDay){state.planDay=b.dataset.planDay;householdUI.openPicker(state.planDay);return;}
@@ -549,7 +389,7 @@ $('#pbSignInBtn').onclick=async()=>{
   updatePocketBaseUI();
   setupPocketBaseSubscriptions();
   await loadPocketBaseData();
-  toast('Connected to PocketBase');
+  toast('Signed in to Hearth');
  }catch(err){
   const msg=err?.message||'';
   $('#pbError').textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
@@ -574,7 +414,7 @@ $('#pbSignUpBtn').onclick=async()=>{
   updatePocketBaseUI();
   setupPocketBaseSubscriptions();
   await loadPocketBaseData();
-  toast('PocketBase account created & connected');
+  toast('Hearth account created');
  }catch(err){
   const msg=err?.message||'';
   $('#pbError').textContent=(msg.includes('Failed to fetch')||msg.includes('NetworkError'))
@@ -584,11 +424,11 @@ $('#pbSignUpBtn').onclick=async()=>{
 };
 
 $('#pbDisconnectBtn').onclick=()=>{
- pb.logout();
+ pb.logout();leaveHousehold();$('#settingsDialog').close();
  localStorage.removeItem('hearth-guest');
  sessionStorage.removeItem('hearth-guest');
  updatePocketBaseUI();
- toast('Disconnected from PocketBase');
+ toast('Signed out of Hearth');
  showAuthOverlay();
 };
 
@@ -597,7 +437,7 @@ $('#pbUploadDataBtn').onclick=async()=>{
  try{
   toast('Uploading device data to PocketBase…');
   await uploadDeviceDataToPocketBase();
-  toast('Device data uploaded to PocketBase');
+  toast('Device lists imported or queued for sync');
  }catch(err){
   toast('Failed to upload data: '+err.message);
  }finally{$('#pbUploadDataBtn').disabled=false;}
@@ -681,7 +521,7 @@ if(authCard)authCard.onsubmit=async(e)=>{
    toast('Account created & connected!');
   }else{
    await pb.login(email,password);
-   toast('Connected to PocketBase');
+   toast('Signed in to Hearth');
   }
   localStorage.removeItem('hearth-guest');
   sessionStorage.removeItem('hearth-guest');
@@ -705,25 +545,15 @@ if(authCard)authCard.onsubmit=async(e)=>{
 };
 
 const pbAccountBtn=$('#pbAccountBtn');
-if(pbAccountBtn)pbAccountBtn.onclick=()=>{
- if(pb.isAuthenticated()){
-  const user=pb.user();
-  const email=user?.email||'PocketBase';
-  if(confirm(`Signed in as ${email}.\n\nDo you want to sign out?`)){
-   pb.logout();
-   localStorage.removeItem('hearth-guest');
-   sessionStorage.removeItem('hearth-guest');
-   updatePocketBaseUI();
-   toast('Signed out');
-   showAuthOverlay();
-  }
- }else{
-  showAuthOverlay();
- }
-};
+if(pbAccountBtn)pbAccountBtn.onclick=()=>{if(pb.isAuthenticated())openSettings();else showAuthOverlay();};
 
-let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render,syncSettingsToPocketBase,syncPocketBaseBatch});
+$('#pbConnectedState').insertAdjacentHTML('beforeend','<h3>Your household</h3><p id="householdName"></p><ul id="householdMembers" class="household-members"></ul><button id="createInvite" class="button">Create invitation code</button><p id="inviteCode" class="household-code" role="status"></p><details><summary>Join another household</summary><p>Your current lists will move with you. Sync pending edits before joining.</p><label>Invitation code<input id="joinCode" autocomplete="off" maxlength="32"></label><button id="joinHousehold" class="button">Join and bring my lists</button></details><p id="householdError" class="error" role="alert"></p>');
+$('#createInvite').onclick=async()=>{$('#createInvite').disabled=true;try{const result=await pb.invite();$('#inviteCode').textContent=result.code+' — share privately; expires in 24 hours.';}catch(e){$('#householdError').textContent=e.message;}finally{$('#createInvite').disabled=false;}};
+$('#joinHousehold').onclick=async()=>{const b=$('#joinHousehold');b.disabled=true;try{if(householdStore?.data.queue.length)throw Error('Sync or resolve pending edits before joining.');await pb.join($('#joinCode').value.trim());await loadPocketBaseData();$('#joinCode').value='';toast('Joined your household');}catch(e){$('#householdError').textContent=e.message;}finally{b.disabled=false;}};
+$('#resetPassword').onclick=async()=>{const email=$('#authEmail').value.trim();if(!email||!$('#authEmail').validity.valid){$('#authError').textContent='Enter your account email first.';return;}$('#resetPassword').disabled=true;try{pb.setUrl($('#authServerUrl').value);await pb.resetPassword(email);$('#authError').textContent='If this address has an account, password reset instructions will arrive by email.';}catch(e){$('#authError').textContent=e.message;}finally{$('#resetPassword').disabled=false;}};
+let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render,syncSettingsToPocketBase,householdBatch});
 await householdUI.migrateLocal();
+installQuickAdd({homeChange,homeItems,openEvent,toast});
 householdUI.navigate(state.app,false);theme();render();renderHome();initConnection();
 updatePocketBaseUI();
 if(pb.isAuthenticated()){

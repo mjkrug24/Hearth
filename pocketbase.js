@@ -61,6 +61,7 @@ export class PocketBaseClient {
       clean = (isHttps ? 'https://' : 'http://') + clean;
     }
     clean = clean.replace(/\/_+$/, '');
+    if(clean!==this.getUrl())this.logout();
     this.url = clean;
     const storage = getStorage();
     if (storage) storage.setItem(STORAGE_URL, this.url);
@@ -89,30 +90,7 @@ export class PocketBaseClient {
       headers['Authorization'] = this.auth.token;
     }
 
-    let res;
-    try {
-      res = await fetch(directUrl, { ...options, headers });
-    } catch (directErr) {
-      // In browser: attempt same-origin proxy fallback if direct fetch fails
-      const isBrowser = typeof window !== 'undefined' && typeof location !== 'undefined';
-      if (isBrowser) {
-        try {
-          const proxyUrl = '/api/pb' + path.replace(/^\/api/, '');
-          res = await fetch(proxyUrl, {
-            ...options,
-            headers: { ...headers, 'x-pb-url': this.getUrl() }
-          });
-          if (res.status === 404 || res.status === 502) {
-            throw directErr;
-          }
-        } catch {
-          throw directErr;
-        }
-      } else {
-        throw directErr;
-      }
-    }
-
+    const res = await fetch(directUrl, { ...options, headers });
     if (res.status === 204) return null;
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -158,9 +136,13 @@ export class PocketBaseClient {
   // --- Generic Collection Helpers ---
 
   async getFullList(collection, query = {}) {
-    const params = new URLSearchParams({ perPage: '500', ...query });
-    const res = await this.request(`/api/collections/${encodeURIComponent(collection)}/records?` + params);
-    return res.items || [];
+    const items=[];let page=1,totalPages=1;
+    do {
+      const params=new URLSearchParams({perPage:'500',...query,page:String(page)});
+      const res=await this.request('/api/collections/'+encodeURIComponent(collection)+'/records?'+params);
+      items.push(...(res.items||[]));totalPages=res.totalPages||1;page++;
+    }while(page<=totalPages);
+    return items;
   }
 
   async create(collection, record) {
@@ -201,6 +183,7 @@ export class PocketBaseClient {
         }
       });
 
+      for(const topic of ['hearth_settings','hearth_items','hearth_events','hearth_households'])this.sse.addEventListener(topic+'/*',e=>{try{this.notify(topic,JSON.parse(e.data));}catch{}});
       this.sse.onmessage = e => {
         try {
           const payload = JSON.parse(e.data);
@@ -228,7 +211,7 @@ export class PocketBaseClient {
 
   async submitSubscriptions() {
     if (!this.clientId) return;
-    const subs = ['hearth_settings/*', 'hearth_items/*', 'hearth_events/*'];
+    const subs = ['hearth_settings/*', 'hearth_items/*', 'hearth_events/*', 'hearth_households/*'];
     await this.request('/api/realtime', {
       method: 'POST',
       body: JSON.stringify({
@@ -281,20 +264,12 @@ export class PocketBaseClient {
     return list[0] || null;
   }
 
-  async saveSettings(settingsPayload) {
-    const existing = await this.fetchSettings().catch(() => null);
-    if (existing) {
-      return this.update('hearth_settings', existing.id, {
-        settings: settingsPayload,
-        user: this.user()?.id || null
-      });
-    } else {
-      return this.create('hearth_settings', {
-        settings: settingsPayload,
-        user: this.user()?.id || null
-      });
-    }
-  }
+  saveSettings(settingsPayload) { return this.request('/api/hearth/settings',{method:'POST',body:JSON.stringify(settingsPayload)}); }
+  snapshot(){return this.request('/api/hearth/snapshot');}
+  apply(operation){return this.request('/api/hearth/apply',{method:'POST',body:JSON.stringify(operation)});}
+  invite(){return this.request('/api/hearth/invite',{method:'POST',body:'{}'});}
+  join(code){return this.request('/api/hearth/join',{method:'POST',body:JSON.stringify({code})});}
+  resetPassword(email){return this.request('/api/collections/users/request-password-reset',{method:'POST',body:JSON.stringify({email:email.trim()})});}
 
   async fetchItems() {
     return this.getFullList('hearth_items', { sort: 'name' });

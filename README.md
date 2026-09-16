@@ -51,22 +51,18 @@ Tokens are encrypted in HttpOnly cookies (Secure on HTTPS). The server refreshes
 
 Google API references: [event pagination](https://developers.google.com/workspace/calendar/api/v3/reference/events/list), [patch semantics](https://developers.google.com/workspace/calendar/api/v3/reference/events/patch), [calendar sharing](https://developers.google.com/workspace/calendar/api/v3/reference/acl/insert).
 
-## Shared household setup
+## Hearth accounts and household storage
 
-Shared storage requires your Supabase project. Until configured, the app explicitly says lists and custom recipes save on this device.
+Hearth uses PocketBase 0.40.4 for household data and personal preferences. Google Calendar is an independent connected service: changing Google accounts does not change your household. Navigation stays local to each device.
 
-1. Run supabase.sql in your project's SQL editor.
-2. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to Vercel's server environment.
-3. Set HOUSEHOLD_MEMBERS to your Google email followed by krugemilee@gmail.com, separated by a comma.
-4. Set HOUSEHOLD_ID to a stable name such as home. Redeploy.
-
-Each member signs in with Google. The server verifies the connected account via Google's primary calendar ID and checks the configured email allowlist. No invitation is needed. Google sign-in alone never gives an arbitrary visitor access to your household. The service key is server-only; the database denies direct anonymous/authenticated-client access through RLS.
-
-Household items use individual rows. Both devices refresh shared data every 15 seconds while a household destination is open. Single-item edits use the latest successful write. Shopping previews, pantry transfers, cooking deductions, and chore advancement use a transaction and reject a stale household snapshot. Every queued batch has a persistent operation ID, so retrying after a lost response cannot apply it twice.
-
-Device-only lists are not automatically uploaded. In Meals, **Import recipes from this device** explicitly imports local custom recipes into a connected household using stable IDs; repeating the import does not duplicate or overwrite existing household recipes. Favorites are personal to the current account on this browser.
-
-## Home tools and limits
+- Sign in from the Hearth account button. In Settings, the owner can create a one-use invitation code valid for 24 hours. No invitation email is sent. Joining brings your personal lists into the destination household; moving from an already shared household requires an administrator.
+- Password recovery uses PocketBase's email flow. Configure SMTP and its password-reset template before offering recovery.
+- Reads require household membership. Direct collection writes are locked; authenticated hooks validate and transact changes. Personal events and settings remain owner-only.
+- Persistent operation IDs and database receipts make lost responses safe to retry. Concurrent changes reject the entire operation with a refresh-and-review message.
+- Queues and caches are separated by server URL and user ID. Sign-out retains pending edits and restores separate device lists. Changing server URLs clears authentication.
+- Sync details shows failed edits. Retry connection failures. Discard rejected stale previews and their dependent edits, refresh, and rebuild. An attempted operation with an unknown outcome must be retried before discarding.
+- Device lists stay local until **Import device lists** is selected. Matching IDs are skipped. Meals offers a recipe-only import. Local calendar events are not included in list import.
+- Empty remote lists replace cached lists. Real-time notifications trigger snapshot refreshes, with foreground polling as a fallback.
 
 ## Everyday workflows
 
@@ -83,12 +79,28 @@ Meal balance is a transparent ingredient-category checklist. It does not claim t
 
 The app does not implement full Google Calendar parity: Google remains the place to manage entire recurring series, attachments, invitations, conference creation, complex reminders, and advanced calendar settings.
 
-## Upgrading an existing deployment
+## PocketBase installation and upgrade
 
-1. Back up your household data and run the current `supabase.sql` in Supabase before deploying this version. The migration is rerunnable and preserves existing rows. It adds the `recipes` kind, operation receipts, and the server-only transactional function.
-2. Deploy the updated application and API together. Existing environment variables and household membership rules remain valid. The updated local server serves the manifest, SVG, PNG, and favicon with their correct content types.
-3. Open Hearth while online once to refresh its service-worker cache and icon assets. Some devices may retain an installed icon until the app is reinstalled.
-4. Existing device recipes migrate locally once, retaining the old storage key as a backup. Legacy meal references gain stable IDs and snapshots when resolvable. Connected household meal references migrate in place; local recipes require explicit import.
-5. Pending changes stay bound to their original account. A batch that later encounters a stale snapshot remains in **Sync details**: discard that failed operation, refresh, and rebuild its preview. Later queued operations stay ordered and may also need review if they depended on discarded changes.
+1. Back up PocketBase's data directory. Test against a restored copy first. This version is verified with **PocketBase 0.40.4**; follow its upgrade instructions if your server is older.
+2. Copy both repository directories **pocketbase/pb_migrations** and **pocketbase/pb_hooks** to the server. Start PocketBase with those migration/hook directories, or place them beside the executable under the default names.
+3. The additive migration **1789516800_household_sync.js** creates or upgrades collections, locks raw writes, and scopes reads. Existing items with a recorded creator move to a separate household for that creator. Historical broad access is not treated as proof of membership. Use invitation codes to reconnect members.
+4. Rows without a recorded creator remain preserved but inaccessible. A superuser must verify ownership and assign a household relation. Review duplicate historical client IDs before rollout. Clients cannot claim orphaned rows.
+5. Restart PocketBase to load hooks. Verify GET /api/hearth/snapshot while authenticated and verify unrelated users cannot read each other's items. Migrations replace the old permissive JSON schema as the sole schema source.
+6. Deploy the frontend after the backend. Configure HTTPS and permitted origins on the PocketBase host. Browser requests go directly to PocketBase; the open-ended local proxy has been removed.
+7. Open Hearth online to refresh the service-worker cache. Device recipe references migrate once; shared meal references gain snapshots when resolvable. Device recipes require explicit import.
 
-Production deployment and running the migration on a live Supabase project are separate from local implementation and verification.
+The earlier Google/Supabase household queue remains in its original storage key. It is never silently replayed into PocketBase or another account. Resolve or export legacy edits before retiring an older deployment. Legacy API handlers remain for migration compatibility; the current UI uses PocketBase household hooks.
+
+Production deployment and applying migrations to live data remain separate rollout steps.
+
+## New everyday shortcuts
+
+- **+ Add** parses grocery quantities, task dates, or event dates/times into editable fields. Events continue into the full editor for calendar and end-time selection. Times without AM/PM are shown literally in 24-hour form for review.
+- **Start cooking** opens large ingredient and method checklists, a timer, and an optional screen-awake control. Finishing a planned meal opens the pantry deduction preview; confirmation marks it cooked. Timers stop when cooking mode closes and do not send background notifications.
+
+## Verification
+
+- **npm test**: unit/API tests, queue recovery, account isolation, recipe/inventory/chore logic, and Quick Add parsing.
+- **npm run test:browser**: calendar, local/shared households, offline retries, account switching, Quick Add, cooking, and phone layouts using fixtures.
+- **npm run test:pb**: real isolated PocketBase tests for authorization, invitations, receipts, rollback, stale snapshots, and empty lists. Set HEARTH_PB_BIN to a 0.40.4 executable. The Windows default is the downloaded binary under the temporary directory. Tests use a disposable data directory and localhost port 8199, never your configured server.
+- **npm run screenshots**: captures desktop/phone destinations in both themes under test-results/screenshots/. Cooking browser tests also capture light/dark phone screenshots.

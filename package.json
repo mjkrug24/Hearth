@@ -6,11 +6,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test tests/model.test.js tests/api.test.js tests/planning.test.js tests/offline.test.js tests/household.test.js tests/pocketbase.test.js",
+    "test": "node --test tests/model.test.js tests/api.test.js tests/planning.test.js tests/offline.test.js tests/household.test.js tests/pocketbase.test.js tests/household-store.test.js",
     "test:browser": "playwright test",
     "icons": "node scripts/generate-icons.mjs",
     "screenshots": "node scripts/capture-ui.mjs",
-    "setup:pb": "node scripts/setup-pocketbase.mjs"
+    "setup:pb": "node scripts/setup-pocketbase.mjs",
+    "test:pb": "node scripts/test-pocketbase.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0"

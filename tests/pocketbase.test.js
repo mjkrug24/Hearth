@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PocketBaseClient} from '../pocketbase.js';
 
+test('Full list pagination and changing servers do not lose rows or reuse credentials',async()=>{
+ const original=globalThis.fetch,client=new PocketBaseClient();let calls=0;
+ try{client.auth={token:'old-server-token',record:{id:'user'}};client.setUrl('https://another.example');assert.equal(client.isAuthenticated(),false);
+ globalThis.fetch=async(url,options)=>{assert.equal(options.headers.Authorization,undefined);calls++;return {ok:true,status:200,json:async()=>({totalPages:2,items:[{id:new URL(url).searchParams.get('page')}]})};};
+ assert.deepEqual((await client.getFullList('hearth_items')).map(i=>i.id),['1','2']);assert.equal(calls,2);
+ }finally{globalThis.fetch=original;}
+});
+
 // In-memory mock storage
 class MockStorage {
   constructor() { this.store = new Map(); }
@@ -140,6 +148,7 @@ test('PocketBase typed Hearth methods: fetchSettings, saveSettings, fetchItems, 
   const origFetch = globalThis.fetch;
 
   globalThis.fetch = async (url, opts) => {
+    if(url.endsWith('/api/hearth/settings')){records.hearth_settings=[{id:'settings',user:'user-123',settings:JSON.parse(opts.body)}];return {ok:true,status:200,json:async()=>records.hearth_settings[0]};}
     const colMatch = url.match(/\/api\/collections\/([^/?]+)/);
     const col = colMatch?.[1];
     if (opts.method === 'POST') {
@@ -219,4 +228,3 @@ test('PocketBase pub/sub listener dispatching and unsubscription', () => {
 
   unsubWildcard();
 });
-

@@ -43,4 +43,12 @@ dialog{padding:28px;border-radius:22px;max-height:calc(100dvh - 32px)}dialog::ba
 .empty-art{width:160px;max-width:80%;height:auto;border-radius:16px;margin-bottom:16px;box-shadow:0 4px 16px color-mix(in srgb,var(--text) 8%,transparent)}
 .auth-emblem{display:flex;justify-content:center;margin-bottom:4px}
 .auth-emblem img{width:72px;height:72px;border-radius:50%;box-shadow:0 4px 16px color-mix(in srgb,var(--accent) 35%,transparent);border:2px solid color-mix(in srgb,var(--accent) 40%,var(--line));object-fit:cover}
+.cooking-dialog{width:min(960px,96vw);max-height:94dvh}.cooking-columns{display:grid;grid-template-columns:1fr 1.6fr;gap:2rem}.cooking-check{display:flex;align-items:flex-start;gap:1rem;padding:1rem 0;min-height:44px;font-size:1.15rem;line-height:1.65}.cooking-check input{flex:0 0 24px;width:24px;height:24px;margin-top:6px}.cooking-check strong{display:block}.cooking-check:has(input:checked) span{opacity:.55;text-decoration:line-through}.cooking-timer{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 0;border-block:1px solid var(--border)}.cooking-timer input{max-width:100px}.cooking-timer output{font-size:2rem;font-variant-numeric:tabular-nums}.cooking-timer small{flex-basis:100%}.wake-control{display:flex;gap:12px;align-items:center;min-height:44px}.wake-control input{width:24px;height:24px}.household-code{overflow-wrap:anywhere;user-select:all}.household-members{padding-left:1.25rem}#quickFields{margin-top:20px}#quickAddBtn{white-space:nowrap}
+@media(max-width:700px){.cooking-columns{grid-template-columns:1fr;gap:12px}.cooking-dialog{padding:20px}.topbar #pbAccountText{display:none}.topbar #quickAddBtn{padding-inline:10px}.cooking-check{font-size:1.1rem}}
 
+#accountBtn.hidden{display:none}
+@media(max-width:700px){.topbar{gap:6px}.topbar .brand{min-width:0;margin-right:auto}.topbar #pbAccountBtn{padding:8px;min-width:44px}.topbar .top-spacer{display:none}}
+
+.cooking-dialog .cooking-check{flex-direction:row;align-items:flex-start}.cooking-dialog .wake-control{flex-direction:row}.cooking-check span{flex:1;min-width:0}.cooking-check input{flex-shrink:0}
+
+#quickDialog .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#quickDialog label{min-width:0}#quickDialog input,#quickDialog select{min-width:0;width:100%}
