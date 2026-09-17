@@ -113,7 +113,7 @@ async function initConnection(){
 }
 function renderCalendars(){
   const groups=state.connected?[['My calendars',state.calendars.filter(c=>c.accessRole==='owner')],['Other calendars',state.calendars.filter(c=>c.accessRole!=='owner')]]:[['Local calendar',[localCalendar]]];
-  $('#calendarLists').innerHTML=groups.map(([name,list])=>`<section class="calendar-group"><h3>${name}</h3>${list.map(c=>`<div class="calendar-row"><button type="button" class="color-swatch" data-color-for="${esc(c.id)}" style="background:${safeColor(c.backgroundColor)}" aria-label="Change color for ${esc(c.name)}" title="Change color"></button><label title="${esc(c.name)}"><input type="checkbox" data-calendar="${esc(c.id)}" style="accent-color:${safeColor(c.backgroundColor)}" ${state.hidden.includes(c.id)?'':'checked'}><span>${esc(c.name)}</span></label>${state.connected&&c.accessRole==='owner'?`<button class="icon" data-share="${esc(c.id)}" aria-label="Share ${esc(c.name)}">↗</button>`:''}</div>`).join('')||'<p class="muted">No calendars in this group.</p>'}</section>`).join('');
+  $('#calendarLists').innerHTML=groups.map(([name,list])=>`<section class="calendar-group"><h3>${name}</h3>${list.map(c=>`<div class="calendar-row"><button type="button" class="color-swatch" data-color-for="${esc(c.id)}" style="background:${safeColor(c.backgroundColor)}" aria-label="Change color for ${esc(c.name)}" title="Change color"></button><label title="${esc(c.name)}"><input type="checkbox" data-calendar="${esc(c.id)}" style="accent-color:${safeColor(c.backgroundColor)}" ${state.hidden.includes(c.id)?'':'checked'}><span>${esc(c.name)}</span></label>${state.connected&&c.accessRole==='owner'?`<button type="button" class="cal-share-btn" data-share="${esc(c.id)}" aria-label="Share ${esc(c.name)} with household" title="Share with household"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></button>`:''}</div>`).join('')||'<p class="muted">No calendars in this group.</p>'}</section>`).join('');
 }
 function renderMini(){const first=state.mini,start=addDays(first,-first.getDay());$('#miniTitle').textContent=monthTitle(first);$('#miniGrid').innerHTML=['S','M','T','W','T','F','S'].map(x=>`<span>${x}</span>`).join('')+Array.from({length:42},(_,i)=>{const d=addDays(start,i);return `<button data-day="${dateKey(d)}" class="${d.getMonth()!==first.getMonth()?'dim ':''}${dateKey(d)===dateKey(state.date)?'selected':''}" aria-label="${esc(d.toDateString())}">${d.getDate()}</button>`;}).join('');}
 function chip(e){return `<button class="event-chip" data-event="${esc(e.id)}" style="${paint(e)}" title="${esc(e.title)}">${e.pending?'◷ ':''}${e.allDay?'':esc(timeLabel(e.time))+' '}${esc(e.title)}${e.localParentId?' ↻':''}</button>`;}
@@ -180,15 +180,15 @@ function renderHome(){householdUI.render();}
 async function homeChange(kind,item,remove=false){item={...item,kind};if(state.shared){if(remove){const op=householdStore.enqueue('items',[{item,remove:true}],'Delete '+item.name,{delay:10000});$('#undoBar span').textContent='Removed '+item.name;$('#undoBar').classList.remove('hidden');$('#undoDelete').dataset.id=op.operationId;setTimeout(()=>householdStore?.flush(),10100);return;}await householdBatch('Save '+item.name,[{item}]);return;}if(remove){deferDelete({type:'home',item,before:item,account:'device'});renderHome();return;}const next=applyChanges(state.home,[{item}]);localStorage.setItem('hearth-home',JSON.stringify(next));state.home=next;renderHome();}
 for(const [button,kind] of [['#clearTasks','tasks'],['#clearGroceries','groceries']])$(button).onclick=async()=>{const completed=state.home[kind].filter(x=>x.done);if(!completed.length)return toast('No completed items to clear.');if(!confirm('Remove '+completed.length+' completed items?'))return;$(button).disabled=true;try{for(const item of completed)await homeChange(kind,item,true);}catch{}finally{$(button).disabled=false;}};
 $('#mealForm').onsubmit=e=>{e.preventDefault();const groups=mealGroups($('#mealInput').value);$('#mealResult').innerHTML=groups.map(g=>`<div>${g.found.length?'✓':'○'} ${esc(g.name)}: ${g.found.length?esc(g.found.join(', ')):'not recognized'}</div>`).join('')+'<p class="muted">Missing recognition is not proof an ingredient is absent. Use this as a planning checklist; adjust portions to your needs.</p>';};
-$('#shareForm').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('.primary');button.disabled=true;try{await post('/api/google/share',{calendar:shareCalendar.id,email:$('#shareEmail').value,role:$('#shareRole').value});$('#shareDialog').close();toast('Google Calendar sharing updated');}catch(e){$('#shareError').textContent=e.message;}finally{button.disabled=false;}};
+$('#shareForm').onsubmit=async e=>{e.preventDefault();const email=$('#shareEmail').value.trim(),role=$('#shareRole').value;if(!email)return;const btn=$('#shareAddBtn')||e.target.querySelector('button');if(btn)btn.disabled=true;$('#shareError').textContent='';try{await post('/api/google/share',{calendar:shareCalendar.id,email,role});$('#shareEmail').value='';toast('Shared with '+email);await loadSharing();}catch(err){$('#shareError').textContent=err.message;}finally{if(btn)btn.disabled=false;}};
 document.addEventListener('click',async e=>{
  const popover=$('.color-palette-popover');
  if(popover&&!e.target.closest('.color-palette-popover')&&!e.target.closest('[data-color-for]'))popover.remove();
  const b=e.target.closest('button,a');if(b?.hasAttribute('data-close')){b.closest('dialog').close();return;}
  if(b?.dataset.event){if(state.suppressClick){state.suppressClick=false;return;}openEvent(displayEvents().find(x=>x.id===b.dataset.event));return;}
  if(b?.dataset.day){state.date=parseDay(b.dataset.day);state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();return;}
- if(b?.dataset.share){shareCalendar=state.calendars.find(c=>c.id===b.dataset.share);$('#shareName').textContent=shareCalendar.name;$('#shareEmail').value=state.partner||settings.spouse||'';$('#shareRole').value='reader';$('#shareError').textContent='';$('#shareDialog').showModal();loadSharing();return;}
- if(b?.dataset.colorFor){const calId=b.dataset.colorFor;const existing=$('.color-palette-popover');const wasSame=existing&&existing.dataset.calId===calId;existing?.remove();if(wasSame)return;const pop=document.createElement('div');pop.className='color-palette-popover';pop.dataset.calId=calId;pop.innerHTML=calendarPalette.map((p,i)=>`<button type="button" class="palette-dot${safeColor((state.calendars.find(c=>c.id===calId)||localCalendar).backgroundColor)===p.bg?' selected':''}" data-pick-color="${i}" data-pick-cal="${esc(calId)}" style="background:${p.bg}" aria-label="Color ${i+1}" title="Select color"></button>`).join('');b.closest('.calendar-row').appendChild(pop);return;}
+ if(b?.dataset.share){shareCalendar=state.calendars.find(c=>c.id===b.dataset.share);if(!shareCalendar)return;$('#shareName').textContent=shareCalendar.name;$('#shareEmail').value='';$('#shareRole').value='reader';$('#shareError').textContent='';$('#shareDialog').showModal();loadSharing();$('.color-palette-popover')?.remove();return;}
+ if(b?.dataset.colorFor){const calId=b.dataset.colorFor;const existing=$('.color-palette-popover');const wasSame=existing&&existing.dataset.calId===calId;existing?.remove();if(wasSame)return;const cal=state.calendars.find(c=>c.id===calId)||localCalendar;const isOwner=state.connected&&cal.accessRole==='owner';const pop=document.createElement('div');pop.className='color-palette-popover';pop.dataset.calId=calId;pop.innerHTML=`<div class="palette-grid">${calendarPalette.map((p,i)=>`<button type="button" class="palette-dot${safeColor(cal.backgroundColor)===p.bg?' selected':''}" data-pick-color="${i}" data-pick-cal="${esc(calId)}" style="background:${p.bg}" aria-label="Color ${i+1}" title="Select color"></button>`).join('')}</div>${isOwner?`<button type="button" class="text-button palette-share-link" data-share="${esc(calId)}">👥 Share with household…</button>`:''}`;b.closest('.calendar-row').appendChild(pop);return;}
  if(b?.dataset.pickColor!=null){const calId=b.dataset.pickCal,pi=Number(b.dataset.pickColor);const saved=read(calColorKey,{});saved[calId]=pi;write(calColorKey,saved);syncSettingsToPocketBase();$('.color-palette-popover')?.remove();if(calId==='local'){applyLocalColor();const localInState=state.calendars.find(c=>c.id==='local');if(localInState){localInState.backgroundColor=localCalendar.backgroundColor;localInState.foregroundColor=localCalendar.foregroundColor;}}else{state.calendars=colorizeCalendars(state.calendars.map(c=>({...c})));}renderCalendars();render();renderDashboard();return;}
  if(b?.dataset.recipe){openRecipe(b.dataset.recipe);return;}
  if(b?.dataset.deleteItem||b?.dataset.editItem){const kind=b.dataset.kind,item=homeItems(kind).find(x=>x.id===(b.dataset.deleteItem||b.dataset.editItem));if(!item)return;if(b.dataset.deleteItem){try{await homeChange(kind,item,true);}catch{}}else{editingItem={...item,kind};$('#itemName').value=item.name;$('#itemDue').value=item.due||'';$('#itemQuantity').value=item.quantity||'';$('#taskFields').classList.toggle('hidden',kind!=='tasks');$('#inventoryFields').classList.toggle('hidden',!['pantry','groceries'].includes(kind));$('#itemAssignee').innerHTML='<option value="">Anyone</option>'+[...new Set((state.shared?state.members:['device']))].map(email=>`<option value="${esc(email)}">${esc(person(email))}</option>`).join('');$('#itemAssignee').value=item.assignedTo||'';$('#itemPriority').value=item.priority||'normal';$('#itemRepeat').value=item.repeat||'none';$('#itemAmount').value=item.amount||'';$('#itemUnit').value=item.unit||'each';householdUI.prepareItem(item);$('#itemError').textContent='';$('#itemDialog').showModal();}return;}
@@ -196,7 +196,7 @@ document.addEventListener('click',async e=>{
  const timeline=e.target.closest('[data-time-day]');if(timeline){const min=Math.max(0,Math.min(1425,Math.floor((e.clientY-timeline.getBoundingClientRect().top)/15)*15));openEvent(null,timeline.dataset.timeDay,String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0'));}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')$('.color-palette-popover')?.remove();});
-document.addEventListener('change',async e=>{if(e.target.dataset.calendar){const id=e.target.dataset.calendar;state.hidden=state.hidden.filter(x=>x!==id);if(!e.target.checked)state.hidden.push(id);write('hearth-hidden-calendars',state.hidden);syncSettingsToPocketBase();render();renderDashboard();}if(e.target.dataset.check){const kind=e.target.dataset.kind,item=homeItems(kind).find(x=>x.id===e.target.dataset.check);try{await completeItem(kind,item,e.target.checked);}catch(error){toast(error.message);}}});
+document.addEventListener('change',async e=>{if(e.target.dataset.memberEmail){const email=e.target.dataset.memberEmail,role=e.target.value;e.target.disabled=true;$('#shareError').textContent='';try{await post('/api/google/share',{calendar:shareCalendar.id,email,role});toast(role==='none'?'Removed access for '+person(email):'Updated access for '+person(email));await loadSharing();}catch(err){$('#shareError').textContent=err.message;e.target.disabled=false;}return;}if(e.target.dataset.calendar){const id=e.target.dataset.calendar;state.hidden=state.hidden.filter(x=>x!==id);if(!e.target.checked)state.hidden.push(id);write('hearth-hidden-calendars',state.hidden);syncSettingsToPocketBase();render();renderDashboard();}if(e.target.dataset.check){const kind=e.target.dataset.kind,item=homeItems(kind).find(x=>x.id===e.target.dataset.check);try{await completeItem(kind,item,e.target.checked);}catch(error){toast(error.message);}}});
 $('#todayBtn').onclick=()=>{state.date=new Date();state.mini=new Date(state.date.getFullYear(),state.date.getMonth(),1);render();sync();};
 $('#prevBtn').onclick=()=>navigate(-1);$('#nextBtn').onclick=()=>navigate(1);
 $('#miniPrev').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.mini.getMonth()-1,1);renderMini();};$('#miniNext').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.mini.getMonth()+1,1);renderMini();};
@@ -288,9 +288,8 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
    return;
   }
   if(b.dataset.stock){householdUI.transfer([homeItems('groceries').find(g=>g.id===b.dataset.stock)]);return;}
-  if(b.dataset.revoke){if(!confirm('Remove access for '+b.dataset.revoke+'?'))return;try{await post('/api/google/share',{calendar:shareCalendar.id,email:b.dataset.revoke,role:'none'});await loadSharing();}catch(error){$('#shareError').textContent=error.message;}}
+  if(b.dataset.revoke){if(!confirm('Remove access for '+b.dataset.revoke+'?'))return;try{await post('/api/google/share',{calendar:shareCalendar.id,email:b.dataset.revoke,role:'none'});toast('Removed access for '+b.dataset.revoke);await loadSharing();}catch(error){$('#shareError').textContent=error.message;}}
  });
-$('#spouseShare').onchange=async e=>{const email=state.partner||settings.spouse;if(!email)return;e.target.disabled=true;try{await post('/api/google/share',{calendar:shareCalendar.id,email,role:e.target.checked?'reader':'none'});await loadSharing();}catch(error){e.target.checked=!e.target.checked;$('#shareError').textContent=error.message;e.target.disabled=false;}};
 $('#mealWeekPrev').onclick=()=>{state.mealWeek=addDays(state.mealWeek,-7);renderMealWeek();};$('#mealWeekNext').onclick=()=>{state.mealWeek=addDays(state.mealWeek,7);renderMealWeek();};
 
 let editingCustomRecipeId=null;
@@ -373,9 +372,45 @@ window.addEventListener('offline',()=>{state.verified=false;renderSyncDetails();
 setInterval(()=>{if(!state.loading&&!state.mutating)flushQueue();},15000);
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 async function loadSharing(){
- $('#spouseShare').disabled=true;$('#spouseStatus').textContent='Loading sharing status…';$('#sharingRules').innerHTML='';
- try{const result=await api('/api/google/share?calendar='+encodeURIComponent(shareCalendar.id));state.sharingRules=result.rules;const spouse=state.partner||settings.spouse;$('#spouseShare').checked=result.rules.some(r=>r.email.toLowerCase()===spouse?.toLowerCase()&&r.role!=='none');$('#spouseShare').disabled=!spouse;$('#spouseStatus').textContent=spouse?'Spouse: '+spouse:'Set your spouse email in Settings to enable one-click sharing.';$('#sharingRules').innerHTML=result.rules.map(r=>`<p>${esc(r.email)} · ${esc(r.role)} <button class="text-button" data-revoke="${esc(r.email)}">Revoke</button></p>`).join('')||'<p class="muted">Not shared with anyone.</p>';}
- catch(e){$('#shareError').textContent=e.message;$('#spouseStatus').textContent='Sharing status unavailable';}
+ const houseList=$('#householdShareList'),otherList=$('#sharingRules'),otherSec=$('#otherShareSection'),err=$('#shareError');
+ if(houseList)houseList.innerHTML='<p class="muted">Loading household sharing status…</p>';
+ if(otherList)otherList.innerHTML='';
+ if(otherSec)otherSec.classList.add('hidden');
+ if(err)err.textContent='';
+ try{
+  const result=await api('/api/google/share?calendar='+encodeURIComponent(shareCalendar.id));
+  state.sharingRules=result.rules||[];
+  const pbMembers=(householdStore?.data.members||[]).map(m=>(m.email||'').toLowerCase()).filter(Boolean);
+  const localMembers=(state.members||[]).map(m=>(m||'').toLowerCase()).filter(Boolean);
+  const spouse=(state.partner||settings.spouse||'').toLowerCase();
+  const currentAccount=(state.account||'').toLowerCase();
+  const householdEmails=[...new Set([...pbMembers,...localMembers,spouse])].filter(e=>e&&e!==currentAccount);
+  if(houseList){
+   if(!householdEmails.length){
+    houseList.innerHTML='<p class="muted">No other household members found. Connect your household in Settings to enable one-click sharing.</p>';
+   }else{
+    houseList.innerHTML=householdEmails.map(email=>{
+     const rule=result.rules.find(r=>r.email?.toLowerCase()===email);
+     const role=rule?.role||'none';
+     const name=person(email);
+     const initial=(name||email).charAt(0).toUpperCase();
+     return `<div class="household-share-row"><div class="share-member-info"><span class="member-avatar">${esc(initial)}</span><div><strong>${esc(name)}</strong><small class="muted">${esc(email)}</small></div></div><select class="share-role-select" data-member-email="${esc(email)}" aria-label="Access for ${esc(name)}"><option value="none" ${role==='none'?'selected':''}>🔒 Private</option><option value="reader" ${role==='reader'?'selected':''}>👁️ Can view</option><option value="writer" ${role==='writer'?'selected':''}>✏️ Can view & edit</option></select></div>`;
+    }).join('');
+   }
+  }
+  const otherRules=result.rules.filter(r=>!householdEmails.includes(r.email?.toLowerCase()));
+  if(otherList&&otherSec){
+   if(otherRules.length){
+    otherSec.classList.remove('hidden');
+    otherList.innerHTML=otherRules.map(r=>`<div class="other-share-row"><span><strong>${esc(r.email)}</strong> · <span class="muted">${r.role==='writer'?'Can view & edit':'Can view'}</span></span><button type="button" class="text-button" data-revoke="${esc(r.email)}">Revoke</button></div>`).join('');
+   }else{
+    otherSec.classList.add('hidden');
+   }
+  }
+ }catch(e){
+  if(err)err.textContent=e.message;
+  if(houseList)houseList.innerHTML='<p class="error">Could not load sharing rules: '+esc(e.message)+'</p>';
+ }
 }
 
 $('#pbSignInBtn').onclick=async()=>{

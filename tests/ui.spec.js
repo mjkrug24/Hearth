@@ -269,3 +269,67 @@ test('Google login button is present, displays app icon, and auto-bypasses overl
  await expect(overlay).not.toBeVisible();
  await expect(page.locator('#pbAccountText')).toHaveText('googleuser');
 });
+
+test('Household calendar sharing modal displays members with permission selectors and updates access', async({page})=>{
+ const shareCalls = [];
+ await page.route('**/api/google/status', r => r.fulfill({
+  json: {
+   configured: true,
+   connected: true,
+   account: 'me@example.com',
+   members: ['me@example.com', 'partner@example.com'],
+   partner: 'partner@example.com',
+   householdConfigured: true
+  }
+ }));
+ await page.route('**/api/household', r => r.fulfill({json:{shared:false, items:[]}}));
+ await page.route('**/api/google/events*', r => r.fulfill({
+  json: {
+   calendars: [
+    { id: 'family-cal', name: 'Family Events', accessRole: 'owner', backgroundColor: '#234b3c', foregroundColor: '#ffffff' }
+   ],
+   events: []
+  }
+ }));
+ await page.route('**/api/google/share*', async r => {
+  if (r.request().method() === 'GET') {
+   return r.fulfill({ json: { rules: [{ email: 'external@example.com', role: 'reader' }] } });
+  }
+  if (r.request().method() === 'POST') {
+   shareCalls.push(r.request().postDataJSON());
+   return r.fulfill({ json: { shared: true } });
+  }
+ });
+
+ await page.goto('/');
+ await page.evaluate(()=>{ localStorage.setItem('hearth-guest', '1'); });
+ await page.reload();
+ await page.getByRole('button', {name: 'Calendar', exact: true}).click();
+
+ // Open share dialog via the cal-share-btn
+ const shareBtn = page.locator('[data-share="family-cal"]').first();
+ await expect(shareBtn).toBeVisible();
+ await shareBtn.click();
+
+ const dialog = page.locator('#shareDialog');
+ await expect(dialog).toBeVisible();
+ await expect(page.locator('#shareName')).toHaveText('Family Events');
+
+ // Check household member row is present
+ const partnerRow = page.locator('.household-share-row').filter({ hasText: 'partner@example.com' });
+ await expect(partnerRow).toBeVisible();
+ const select = partnerRow.locator('.share-role-select');
+ await expect(select).toHaveValue('none');
+
+ // Change partner's access to reader
+ await select.selectOption('reader');
+ await expect.poll(() => shareCalls.length).toBe(1);
+ expect(shareCalls[0]).toEqual({
+  calendar: 'family-cal',
+  email: 'partner@example.com',
+  role: 'reader'
+ });
+
+ // Check external share is shown
+ await expect(page.locator('#sharingRules')).toContainText('external@example.com');
+});

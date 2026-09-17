@@ -63,3 +63,40 @@ dialog{padding:28px;border-radius:22px;max-height:calc(100dvh - 32px)}dialog::ba
 #quickDialog .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#quickDialog label{min-width:0}#quickDialog input,#quickDialog select{min-width:0;width:100%}
 
 .grocery-fields .grocery-note{flex:1 1 220px;min-width:0}.grocery-fields .grocery-note input{width:100%;min-width:0}.grocery-hint{font-size:12px;margin:8px 0}.grocery-fields{align-items:end}
+
+/* Calendar Row, Color Popover, & Household Share Dialog */
+.calendar-row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:10px;transition:background .15s}
+.calendar-row:hover{background:var(--soft)}
+.calendar-row label{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer}
+.calendar-row label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500}
+.calendar-row .color-swatch{width:16px;height:16px;border-radius:50%;border:2px solid var(--bg);padding:0;cursor:pointer;flex-shrink:0;box-shadow:0 0 0 1px var(--line),0 1px 3px #00000018;transition:transform .15s,box-shadow .15s}
+.calendar-row .color-swatch:hover{transform:scale(1.25);box-shadow:0 0 0 2px var(--accent),0 2px 6px #00000025}
+.cal-share-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;border:0;background:transparent;color:var(--muted);cursor:pointer;opacity:0.6;transition:opacity .15s,background .15s,color .15s}
+.calendar-row:hover .cal-share-btn,.cal-share-btn:focus-visible{opacity:1;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
+
+.color-palette-popover{position:absolute;top:calc(100% + 4px);left:4px;z-index:40;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 28px #0003;animation:surfacePopIn .2s cubic-bezier(0.16,1,0.3,1) both}
+.palette-grid{display:grid;grid-template-columns:repeat(5,24px);gap:8px}
+.palette-dot{width:24px;height:24px;border-radius:50%;border:2px solid transparent;padding:0;cursor:pointer;transition:transform .12s,box-shadow .12s}
+.palette-dot:hover{transform:scale(1.2)}
+.palette-dot.selected{border-color:var(--text);box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--accent);transform:scale(1.1)}
+.palette-share-link{font-size:12px;color:var(--accent);padding:4px 0;text-align:left;border-top:1px solid var(--line);padding-top:8px;cursor:pointer;background:none;border-left:0;border-right:0;border-bottom:0}
+
+.share-dialog{width:min(520px,94vw);padding:24px;border-radius:20px}
+.share-calendar-name{color:var(--accent);font-weight:600;font-size:14px;margin:2px 0 0}
+.share-section{margin:16px 0;display:flex;flex-direction:column;gap:8px}
+.share-section h3,.share-add-form h3{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:0}
+.share-desc{font-size:12px;margin:0 0 4px}
+.household-share-list{display:flex;flex-direction:column;gap:8px}
+.household-share-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--soft);border-radius:12px;border:1px solid var(--line)}
+.share-member-info{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.member-avatar{width:32px;height:32px;border-radius:50%;background:color-mix(in srgb,var(--accent) 20%,var(--bg));color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:14px;flex-shrink:0}
+.share-member-info strong{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.share-member-info small{display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.share-role-select{font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-weight:500;cursor:pointer}
+.other-share-list{display:flex;flex-direction:column;gap:6px}
+.other-share-row{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px}
+.share-add-form{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.share-invite-row{display:flex;gap:8px;align-items:center}
+.share-invite-row input{flex:1;min-width:0}
+.share-invite-row select{flex-shrink:0}
+.share-invite-row button{flex-shrink:0}
