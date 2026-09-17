@@ -234,7 +234,7 @@ $('#viewSelect').onchange=e=>{state.view=e.target.value;$('#calendarContent').sc
 $('#searchInput').oninput=render;$('#createBtn').onclick=()=>openEvent();$('#allDay').onchange=toggleAllDay;$('#eventForm').onsubmit=saveEvent;$('#deleteBtn').onclick=deleteEvent;
 $('#connectBtn').onclick=()=>state.connected?sync():location.assign('/auth/google');$('#signInBtn').onclick=()=>location.assign('/auth/google');
 $('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');localStorage.removeItem('hearth-google-authed');state.events=[...state.localEvents];state.calendars=[localCalendar];$('#accountDialog').close();await initConnection();toast('Disconnected Google account.');if(!pb.isAuthenticated()&&!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){showAuthOverlay();}}catch(e){toast(e.message);}};
-$('#themeBtn').onclick=()=>{settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';theme();};$('#themeSelect').onchange=e=>{settings.theme=e.target.value;theme();};matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
+$('#themeSelect').onchange=e=>{settings.theme=e.target.value;theme();};matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
 $('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);syncSettingsToPocketBase();};
 $('#settingsBtn').onclick=openSettings;
 $('#accountBtn').onclick=openAccount;
