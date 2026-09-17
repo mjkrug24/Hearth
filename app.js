@@ -104,7 +104,7 @@ async function sync(){
   finally{if(sequence===syncSequence){state.loading=false;$('#connectBtn').disabled=false;}}
 }
 async function initConnection(){
-  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){state.events=[];await sync();await flushQueue();}}
+  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){localStorage.setItem('hearth-google-authed','1');hideAuthOverlay();state.events=[];await sync();await flushQueue();}else{localStorage.removeItem('hearth-google-authed');}}
   catch{const cached=read('hearth-account-cache',null);if(cached){Object.assign(state,{account:cached.account,calendars:colorizeCalendars(cached.calendars),events:[...cached.events.filter(e=>e.googleCalendarId),...state.localEvents],connected:true,partner:cached.partner,verified:false});$('#syncStatus').textContent='Offline · cached calendars';$('#connectBtn').textContent='Retry sync';}else $('#syncStatus').textContent='Offline · local calendar';}
   await loadHome();render();
 }
@@ -493,6 +493,9 @@ if(authGuestBtn)authGuestBtn.onclick=()=>{
  hideAuthOverlay();
  toast('Using Hearth locally on this device');
 };
+
+const authGoogleBtn=$('#authGoogleBtn');
+if(authGoogleBtn)authGoogleBtn.onclick=()=>location.assign('/auth/google');
 
 const authCard=$('#authCard');
 if(authCard)authCard.onsubmit=async(e)=>{
