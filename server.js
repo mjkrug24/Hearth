@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {publicFiles,isPublicImage} from './scripts/public-assets.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 if(fs.existsSync(path.join(root,'.env')))process.loadEnvFile(path.join(root,'.env'));
 const port=process.env.PORT||3000;
@@ -12,7 +13,6 @@ const routes={
  '/api/google/share':'./api/google/share.js','/api/google/pocketbase':'./api/google/pocketbase.js','/api/household':'./api/household.js','/api/household/batch':'./api/household/batch.js'
 };
 // Explicit public allowlist prevents .env, tokens, source APIs, and Git data being served.
-const publicFiles=['index.html','styles.css','warm.css','app.js','pocketbase.js','household-store.js','quick-add.js','cooking-mode.js','calendar-model.js','recipes.js','planning.js','offline.js','sw.js','household-ui.js','household-model.js','manifest.json','icon.svg','favicon.ico','icon-192.png','icon-512.png','icon-maskable.png','apple-touch-icon.png'];
 const securityHeaders={"Content-Security-Policy":"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http: https: ws: wss:; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY'};
 http.createServer(async(req,res)=>{
  res.status=code=>{res.statusCode=code;return res;};res.json=data=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));};res.redirect=url=>{res.statusCode=302;res.setHeader('Location',url);res.end();};
@@ -23,8 +23,7 @@ http.createServer(async(req,res)=>{
   let route=routes[url.pathname];if(/^\/api\/google\/events\/[^/]+$/.test(url.pathname)){route='./api/google/events/[id].js';req.query.id=decodeURIComponent(url.pathname.split('/').pop());}
   if(route){let raw='';for await(const part of req){raw+=part;if(raw.length>100000){res.status(413).json({error:'Request too large'});return;}}req.body=raw?JSON.parse(raw):{};const {default:handler}=await import(route);await handler(req,res);return;}
   const file=url.pathname==='/'?'index.html':url.pathname.slice(1);
-  const isImage=/^images\/[\w\-\/]+\.(jpg|jpeg|png|webp|svg)$/i.test(file);
-  if(!publicFiles.includes(file)&&!isImage)return res.status(404).json({error:'Not found'});
+  if(!publicFiles.includes(file)&&!isPublicImage(file))return res.status(404).json({error:'Not found'});
   res.setHeader('Content-Type',file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.svg')?'image/svg+xml':file.endsWith('.png')?'image/png':(file.endsWith('.jpg')||file.endsWith('.jpeg'))?'image/jpeg':file.endsWith('.webp')?'image/webp':file.endsWith('.ico')?'image/x-icon':file.endsWith('.json')?'application/manifest+json':'text/javascript; charset=utf-8');
   fs.createReadStream(path.join(root,file)).pipe(res);
  }catch(e){res.status(500).json({error:e.message});}

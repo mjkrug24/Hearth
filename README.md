@@ -15,6 +15,7 @@ The local server and Vercel use the same API handlers. Public files are explicit
 Tests:
 
 - `npm run check`: check application JavaScript syntax; Vercel runs this before deployment.
+- `npm run build`: check syntax and generate `public/` with the browser files and images from the local server's allowlist. The output folder is generated and should not be committed.
 - `npm test`: calendar math, timezone normalization, pagination, event writes, cookie encryption, request-origin checks, and PocketBase client integration.
 - `npx playwright install chromium`, then `npm run test:browser`: desktop/mobile browser workflows, login card, and timeline geometry using mocked Google and PocketBase responses. No test changes a real calendar.
 - `npm run icons`: render the SVG master into favicon, Apple touch, regular, and maskable app icons.
@@ -24,7 +25,7 @@ On Windows PowerShell with script execution disabled, use `npm.cmd` and `npx.cmd
 
 ## Vercel
 
-Deploy the repository with the Other framework preset. The build command in `vercel.json` runs `npm run check` before deployment. Configure Production environment variables:
+Deploy the repository with the Other framework preset. `vercel.json` sets the build command to `npm run build` and the output directory to `public`. The build checks JavaScript syntax and copies the public assets into that directory; Vercel deploys the root `api/` handlers separately as functions. Configure Production environment variables:
 
 | Key | Value |
 | --- | --- |
