@@ -21,6 +21,39 @@ test('Mobile screens avoid page overflow and icon assets are served with correct
  await page.setViewportSize({width:390,height:844});await local(page,{meals:[meal()]});for(const dest of ['Home','Tasks','Meals','Shopping']){await go(page,dest);expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);await expect(page.locator('[data-app='+dest.toLowerCase()+']')).toBeInViewport();}await go(page,'Meals');expect(await page.locator('#mealWeekGrid').evaluate(e=>getComputedStyle(e).gridTemplateColumns.split(' ').length)).toBe(1);await page.click('#themeBtn');await page.screenshot({path:'test-results/hearth-meals-mobile-dark.png'});for(const [path,type] of [['/icon.svg','image/svg+xml'],['/icon-192.png','image/png'],['/icon-maskable.png','image/png'],['/apple-touch-icon.png','image/png'],['/manifest.json','application/manifest+json'],['/favicon.ico','image/x-icon']]){const r=await request.get(path);expect(r.ok()).toBe(true);expect(r.headers()['content-type']).toContain(type);}
 });
 
+test('Groceries panel displays quantity and notes fields directly without dropdown', async({page})=>{
+ await local(page);
+ await go(page, 'Shopping');
+
+ // Verify details and summary dropdowns are not present in grocery form
+ await expect(page.locator('#groceryForm summary')).toHaveCount(0);
+ await expect(page.locator('#groceryForm details')).toHaveCount(0);
+
+ // Verify quantity, unit, and notes inputs are directly visible
+ const nameInput = page.getByLabel('Grocery item', {exact: true});
+ const amountInput = page.getByLabel('Grocery quantity', {exact: true});
+ const unitSelect = page.getByLabel('Grocery unit', {exact: true});
+ const notesInput = page.getByLabel('Grocery notes (optional)', {exact: true});
+
+ await expect(nameInput).toBeVisible();
+ await expect(amountInput).toBeVisible();
+ await expect(unitSelect).toBeVisible();
+ await expect(notesInput).toBeVisible();
+
+ // Fill in grocery item with quantity, unit, and notes
+ await nameInput.fill('Organic Milk');
+ await amountInput.fill('2');
+ await unitSelect.selectOption('carton');
+ await notesInput.fill('Whole milk, store brand');
+ await page.locator('#groceryForm button').click();
+
+ // Verify item appears in grocery list with quantity and notes
+ const groceryItem = page.locator('#groceryList .list-row').filter({hasText: 'Organic Milk'});
+ await expect(groceryItem).toBeVisible();
+ await expect(groceryItem).toContainText('2 carton');
+ await expect(groceryItem).toContainText('Whole milk, store brand');
+});
+
 async function sharedSetup(page,store,account='owner@example.com'){
  await page.addInitScript(account=>{localStorage.setItem('hearth-guest','1');if(!localStorage.getItem('hearth-pb-auth'))localStorage.setItem('hearth-pb-auth',JSON.stringify({token:'test-token',record:{id:account,email:account}}));},account);
  await page.route('**/api/realtime*',r=>r.abort());
