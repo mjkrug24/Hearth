@@ -28,12 +28,14 @@ Deploy the repository with the Other framework preset. The build command in `ver
 
 | Key | Value |
 | --- | --- |
-| APP_BASE_URL | https://hearth-coral-two.vercel.app |
+| APP_BASE_URL | https://hearth.krugcloud.com |
 | GOOGLE_CLIENT_ID | Google web OAuth client ID |
 | GOOGLE_CLIENT_SECRET | Current Google client secret |
 | TOKEN_ENCRYPTION_KEY | Stable random secret, at least 32 characters |
 
-Google OAuth authorized redirect URI: https://hearth-coral-two.vercel.app/auth/google/callback
+Google OAuth authorized redirect URI: https://hearth.krugcloud.com/auth/google/callback
+
+When changing the public domain, add its exact callback URL to the existing Google OAuth web client, set Vercel's Production `APP_BASE_URL` to that domain's origin, then redeploy. Start Google sign-in again from the new domain. Updating only the Google redirect setting is insufficient: Hearth also uses `APP_BASE_URL` to validate calendar writes. Starting sign-in on one domain and returning to another loses the host-only OAuth state cookie and can cause an invalid-state error.
 
 The existing OAuth consent-screen publication and Calendar API enablement still apply. Changing environment values requires a new deployment. Preview deployments need a matching origin and OAuth redirect.
 
