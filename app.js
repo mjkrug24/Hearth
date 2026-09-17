@@ -66,13 +66,16 @@ function updatePocketBaseUI(){
   if(isAuth){
    const user=pb.user();
    accountText.textContent=(user?.email||'User').split('@')[0];
+  }else if(state.connected&&state.account&&state.account!=='device'){
+   accountText.textContent=state.account.split('@')[0];
   }else{
    accountText.textContent='Sign In';
   }
  }
  if(accountBtn){
-  accountBtn.classList.toggle('connected',isAuth);
-  accountBtn.title=isAuth?`Signed in as ${pb.user()?.email||'PocketBase'}`:'Sign in to PocketBase';
+  const hasAccount=isAuth||(state.connected&&state.account&&state.account!=='device');
+  accountBtn.classList.toggle('connected',hasAccount);
+  accountBtn.title=isAuth?`Signed in as ${pb.user()?.email||'PocketBase'}`:state.connected?`Signed in with Google as ${state.account}`:'Sign in to Hearth';
  }
  const disconnected=$('#pbDisconnectedState'),connected=$('#pbConnectedState');
  if(!disconnected||!connected)return;
@@ -104,9 +107,9 @@ async function sync(){
   finally{if(sequence===syncSequence){state.loading=false;$('#connectBtn').disabled=false;}}
 }
 async function initConnection(){
-  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){localStorage.setItem('hearth-google-authed','1');hideAuthOverlay();state.events=[];await sync();await flushQueue();}else{localStorage.removeItem('hearth-google-authed');}}
+  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;updatePocketBaseUI();$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){localStorage.setItem('hearth-google-authed','1');hideAuthOverlay();state.events=[];await sync();await flushQueue();}else{localStorage.removeItem('hearth-google-authed');if(!pb.isAuthenticated()&&!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){showAuthOverlay();}}}
   catch{const cached=read('hearth-account-cache',null);if(cached){Object.assign(state,{account:cached.account,calendars:colorizeCalendars(cached.calendars),events:[...cached.events.filter(e=>e.googleCalendarId),...state.localEvents],connected:true,partner:cached.partner,verified:false});$('#syncStatus').textContent='Offline · cached calendars';$('#connectBtn').textContent='Retry sync';}else $('#syncStatus').textContent='Offline · local calendar';}
-  await loadHome();render();
+  updatePocketBaseUI();await loadHome();render();
 }
 function renderCalendars(){
   const groups=state.connected?[['My calendars',state.calendars.filter(c=>c.accessRole==='owner')],['Other calendars',state.calendars.filter(c=>c.accessRole!=='owner')]]:[['Local calendar',[localCalendar]]];
@@ -200,7 +203,7 @@ $('#miniPrev').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.m
 $('#viewSelect').onchange=e=>{state.view=e.target.value;$('#calendarContent').scrollTop=0;render();if(['day','week'].includes(state.view))$('#calendarContent').scrollTop=420;sync();};
 $('#searchInput').oninput=render;$('#createBtn').onclick=()=>openEvent();$('#allDay').onchange=toggleAllDay;$('#eventForm').onsubmit=saveEvent;$('#deleteBtn').onclick=deleteEvent;
 $('#connectBtn').onclick=()=>state.connected?sync():location.assign('/auth/google');$('#signInBtn').onclick=()=>location.assign('/auth/google');
-$('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');state.events=[...state.localEvents];state.calendars=[localCalendar];$('#settingsDialog').close();await initConnection();toast('Disconnected. Pending Google changes stay bound to their original account.');}catch(e){toast(e.message);}};
+$('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');localStorage.removeItem('hearth-google-authed');state.events=[...state.localEvents];state.calendars=[localCalendar];$('#settingsDialog').close();await initConnection();toast('Disconnected Google account.');if(!pb.isAuthenticated()&&!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){showAuthOverlay();}}catch(e){toast(e.message);}};
 $('#themeBtn').onclick=()=>{settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';theme();};$('#themeSelect').onchange=e=>{settings.theme=e.target.value;theme();};matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
 $('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);syncSettingsToPocketBase();};
 $('#settingsBtn').onclick=$('#accountBtn').onclick=openSettings;
@@ -210,7 +213,7 @@ setInterval(()=>{if(!document.hidden&&state.connected&&!state.loading&&!state.mu
 setInterval(()=>{if(!document.hidden&&state.app!=='calendar'&&state.shared)loadHome();},15000);
 $('#itemForm').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('.primary');button.disabled=true;try{const item={...editingItem,name:$('#itemName').value.trim(),due:$('#itemDue').value,quantity:$('#itemQuantity').value,assignedTo:$('#itemAssignee').value,priority:$('#itemPriority').value,repeat:$('#itemRepeat').value,amount:Number($('#itemAmount').value)||0,unit:$('#itemUnit').value,...householdUI.itemFields()};if(item.kind==='tasks'&&item.repeat!=='none'&&!item.due)throw Error('Add a due date for a recurring chore.');if(item.kind==='tasks'&&item.due!==editingItem.due)item.scheduledDue=editingItem.scheduledDue||editingItem.due;if(item.repeat!==editingItem.repeat){item.scheduledDue=item.due;item.seriesAnchor=item.due;}await homeChange(item.kind,item);$('#itemDialog').close();}catch(error){$('#itemError').textContent=error.message;}finally{button.disabled=false;}};
 
-const oauthResult=new URLSearchParams(location.search).get('sync');if(oauthResult){history.replaceState({},'',location.pathname);if(oauthResult!=='connected')toast('Google connection: '+oauthResult.replaceAll('-',' '));}
+const oauthResult=new URLSearchParams(location.search).get('sync');if(oauthResult){history.replaceState({},'',location.pathname);if(oauthResult==='connected'){localStorage.setItem('hearth-google-authed','1');hideAuthOverlay();toast('Connected Google account and calendar');}else toast('Google connection: '+oauthResult.replaceAll('-',' '));}
 // Planning, account-bound offline writes, and delayed deletion.
 function person(email){return email==='device'?'Me (this device)':email===pb.user()?.email?'Me':email===state.partner?'Spouse':email;}
 function cacheAccount(){if(state.connected&&state.account!=='device')write('hearth-account-cache',{account:state.account,calendars:state.calendars,events:state.events.filter(e=>e.googleCalendarId),partner:state.partner,lastCalendarSync:state.lastCalendarSync,lastHomeSync:state.lastHomeSync});}
@@ -549,7 +552,7 @@ if(authCard)authCard.onsubmit=async(e)=>{
 };
 
 const pbAccountBtn=$('#pbAccountBtn');
-if(pbAccountBtn)pbAccountBtn.onclick=()=>{if(pb.isAuthenticated())openSettings();else showAuthOverlay();};
+if(pbAccountBtn)pbAccountBtn.onclick=()=>{if(pb.isAuthenticated()||state.connected)openSettings();else showAuthOverlay();};
 
 $('#pbConnectedState').insertAdjacentHTML('beforeend','<h3>Your household</h3><p id="householdName"></p><ul id="householdMembers" class="household-members"></ul><button id="createInvite" class="button">Create invitation code</button><div id="inviteCodePanel" class="hidden"><label for="inviteCode">Your invitation code</label><div class="invitation-copy"><input id="inviteCode" class="household-code" readonly spellcheck="false" autocomplete="off"><button type="button" class="primary" id="copyInviteCode">Copy code</button></div><p class="muted">Share privately. This code expires in 24 hours.</p><p id="inviteCopyStatus" role="status" aria-live="polite"></p></div><details><summary>Join another household</summary><p>Your current lists will move with you. Sync pending edits before joining.</p><label>Invitation code<input id="joinCode" autocomplete="off" maxlength="32"></label><button id="joinHousehold" class="button">Join and bring my lists</button></details><p id="householdError" class="error" role="alert"></p>');
 function resetInvitation(){$('#inviteCodePanel').classList.add('hidden');$('#inviteCode').value='';$('#inviteCopyStatus').textContent='';}
@@ -572,9 +575,10 @@ await householdUI.migrateLocal();
 installQuickAdd({homeChange,homeItems,openEvent,toast});
 householdUI.navigate(state.app,false);theme();render();renderHome();initConnection();
 updatePocketBaseUI();
+const isGoogleAuthed=localStorage.getItem('hearth-google-authed')==='1'||new URLSearchParams(location.search).get('sync')==='connected';
 if(pb.isAuthenticated()){
  setupPocketBaseSubscriptions();
  loadPocketBaseData();
-}else if(!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){
+}else if(!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')&&!isGoogleAuthed){
  showAuthOverlay();
 }

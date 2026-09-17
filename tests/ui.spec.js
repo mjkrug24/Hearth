@@ -230,3 +230,42 @@ test('Booknook-style login overlay appears on first visit, supports sign in, gue
  await expect(overlay).not.toBeVisible();
  await expect(page.locator('#pbAccountText')).toHaveText('reader');
 });
+
+test('Google login button is present, displays app icon, and auto-bypasses overlay when connected', async({page})=>{
+ await page.route('**/api/google/status', r => r.fulfill({json:{configured:true, connected:false}}));
+ await page.route('**/api/household', r => r.fulfill({json:{shared:false, items:[]}}));
+ await page.goto('/');
+ await page.evaluate(()=>{localStorage.clear();sessionStorage.clear();});
+ await page.reload();
+
+ const overlay = page.locator('#authOverlay');
+ await expect(overlay).toBeVisible();
+
+ // Check app icon on login screen and header brand
+ const emblemImg = page.locator('.auth-emblem img');
+ await expect(emblemImg).toHaveAttribute('src', '/icon.svg');
+ const brandImg = page.locator('.brand img');
+ await expect(brandImg).toHaveAttribute('src', '/icon.svg');
+
+ // Check Google Sign In button
+ const googleBtn = page.locator('#authGoogleBtn');
+ await expect(googleBtn).toBeVisible();
+ await expect(googleBtn).toContainText('Sign in with Google');
+
+ // Simulate returning from successful Google OAuth
+ await page.route('**/api/google/status', r => r.fulfill({
+  json: {
+   configured: true,
+   connected: true,
+   account: 'googleuser@gmail.com',
+   members: [],
+   partner: null,
+   householdConfigured: false
+  }
+ }));
+ await page.route('**/api/google/events*', r => r.fulfill({json:{calendars:[], events:[]}}));
+
+ await page.goto('/?sync=connected');
+ await expect(overlay).not.toBeVisible();
+ await expect(page.locator('#pbAccountText')).toHaveText('googleuser');
+});
