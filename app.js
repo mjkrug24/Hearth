@@ -190,7 +190,19 @@ const e=state.editing;if(!e)return;if(householdStore&&!e.googleCalendarId){const
  try{deferDelete({type:'event',item:e,before:e,account:state.connected?state.account:'device'});$('#eventDialog').close();render();}catch(error){$('#eventError').textContent=error.message;}
 }
 function theme(){const dark=settings.theme==='dark'||settings.theme==='system'&&matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=dark?'dark':'light';$('#themeSelect').value=settings.theme;write('hearth-settings',settings);syncSettingsToPocketBase();}
-function openSettings(){updatePocketBaseUI();$('#defaultView').value=settings.view;$('#accountStatus').textContent=state.connected?'Google Calendar is connected in this browser.':state.configured?'Sign in with Google to load your calendars.':'Google connection needs deployment configuration.';$('#signInBtn').textContent=state.connected?'Switch Google account':'Connect Google';$('#disconnectBtn').classList.toggle('hidden',!state.connected);$('#storageExplanation').textContent=state.shared?'Recipes, meals, tasks, pantry, and shopping are shared with your household and refresh while a household screen is open.':'Household lists and recipes currently save on this device. Connect a configured household to share them across devices.';$('#timezoneLabel').textContent=zone;$('#settingsDialog').showModal();}
+function openSettings(){
+ $('#defaultView').value=settings.view;
+ $('#timezoneLabel').textContent=zone;
+ $('#settingsDialog').showModal();
+}
+function openAccount(){
+ updatePocketBaseUI();
+ $('#accountStatus').textContent=state.connected?'Google Calendar is connected in this browser.':state.configured?'Sign in with Google to load your calendars.':'Google connection needs deployment configuration.';
+ $('#signInBtn').textContent=state.connected?'Switch Google account':'Connect Google';
+ $('#disconnectBtn').classList.toggle('hidden',!state.connected);
+ $('#storageExplanation').textContent=state.shared?'Recipes, meals, tasks, pantry, and shopping are shared with your household and refresh while a household screen is open.':'Household lists and recipes currently save on this device. Connect a configured household to share them across devices.';
+ $('#accountDialog').showModal();
+}
 function restoreDeviceHome(){state.home=read('hearth-home',{tasks:[],groceries:[],pantry:[],meals:[]});for(const kind of kinds)state.home[kind]=(state.home[kind]||[]).map(item=>({...item,id:item.id||crypto.randomUUID(),kind}));}
 async function loadHome(){if(pb.isAuthenticated())await loadPocketBaseData();else{state.homeReady=true;renderHome();}}
 function homeItems(kind){let home=state.home;if(!state.shared)for(const op of outbox.forAccount('device')){if(op.status==='failed')break;if(op.type==='batch')home=applyChanges(home,op.changes);if(op.type==='home')home=applyChanges(home,[{item:{...op.item,pending:true},remove:op.action==='delete'}]);}return home[kind]||[];}
@@ -221,10 +233,11 @@ $('#miniPrev').onclick=()=>{state.mini=new Date(state.mini.getFullYear(),state.m
 $('#viewSelect').onchange=e=>{state.view=e.target.value;$('#calendarContent').scrollTop=0;render();if(['day','week'].includes(state.view))$('#calendarContent').scrollTop=420;sync();};
 $('#searchInput').oninput=render;$('#createBtn').onclick=()=>openEvent();$('#allDay').onchange=toggleAllDay;$('#eventForm').onsubmit=saveEvent;$('#deleteBtn').onclick=deleteEvent;
 $('#connectBtn').onclick=()=>state.connected?sync():location.assign('/auth/google');$('#signInBtn').onclick=()=>location.assign('/auth/google');
-$('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');localStorage.removeItem('hearth-google-authed');state.events=[...state.localEvents];state.calendars=[localCalendar];$('#settingsDialog').close();await initConnection();toast('Disconnected Google account.');if(!pb.isAuthenticated()&&!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){showAuthOverlay();}}catch(e){toast(e.message);}};
+$('#disconnectBtn').onclick=async()=>{try{await post('/api/google/status',{},'DELETE');++syncSequence;state.connected=false;state.account='device';state.verified=false;localStorage.removeItem('hearth-account-cache');localStorage.removeItem('hearth-google-authed');state.events=[...state.localEvents];state.calendars=[localCalendar];$('#accountDialog').close();await initConnection();toast('Disconnected Google account.');if(!pb.isAuthenticated()&&!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){showAuthOverlay();}}catch(e){toast(e.message);}};
 $('#themeBtn').onclick=()=>{settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';theme();};$('#themeSelect').onchange=e=>{settings.theme=e.target.value;theme();};matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
 $('#defaultView').onchange=e=>{settings.view=e.target.value;write('hearth-settings',settings);syncSettingsToPocketBase();};
-$('#settingsBtn').onclick=$('#accountBtn').onclick=openSettings;
+$('#settingsBtn').onclick=openSettings;
+$('#accountBtn').onclick=openAccount;
 $('#menuBtn').onclick=()=>document.body.classList.toggle(matchMedia('(max-width:700px)').matches?'sidebar-open':'sidebar-closed');
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea,select,dialog')||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key.toLowerCase()==='t')$('#todayBtn').click();if(e.key.toLowerCase()==='c')openEvent();});
 setInterval(()=>{if(!document.hidden&&state.connected&&!state.loading&&!state.mutating&&!$('dialog[open]'))sync();},60000);
@@ -287,7 +300,7 @@ function decorateTimedEvents(){for(const el of $$('.timed-event')){const event=d
 
 // Sync inspection and a ten-second undo window for deletion.
 $('.sync-card').insertAdjacentHTML('beforeend','<button class="text-button" id="syncDetailsButton">Sync details</button>');
-$('#settingsDialog').insertAdjacentHTML('beforeend','<label>Spouse Google email<input id="spouseSetting" type="email" placeholder="your-spouse@gmail.com"></label><p class="muted">Used by your calendar sharing switch. Household membership is verified by the server configuration.</p>');
+$('#accountDialog').insertAdjacentHTML('beforeend','<label>Spouse Google email<input id="spouseSetting" type="email" placeholder="your-spouse@gmail.com"></label><p class="muted">Used by your calendar sharing switch. Household membership is verified by the server configuration.</p>');
 $('#spouseSetting').value=settings.spouse||state.partner||'';
 $('#spouseSetting').onchange=e=>{if(e.target.validity.valid){settings.spouse=e.target.value.trim().toLowerCase();write('hearth-settings',settings);syncSettingsToPocketBase();}};
 $('#syncDetailsButton').onclick=()=>{renderSyncDetails();$('#syncDialog').showModal();};
@@ -481,7 +494,7 @@ $('#pbSignUpBtn').onclick=async()=>{
 };
 
 $('#pbDisconnectBtn').onclick=()=>{
- pb.logout();leaveHousehold();$('#settingsDialog').close();
+ pb.logout();leaveHousehold();$('#accountDialog').close();
  localStorage.removeItem('hearth-guest');
  sessionStorage.removeItem('hearth-guest');
  localStorage.removeItem('hearth-google-authed');
@@ -610,7 +623,7 @@ if(authCard)authCard.onsubmit=async(e)=>{
 };
 
 const pbAccountBtn=$('#pbAccountBtn');
-if(pbAccountBtn)pbAccountBtn.onclick=()=>{if(pb.isAuthenticated()||state.connected)openSettings();else showAuthOverlay();};
+if(pbAccountBtn)pbAccountBtn.onclick=()=>{if(pb.isAuthenticated()||state.connected)openAccount();else showAuthOverlay();};
 
 $('#pbConnectedState').insertAdjacentHTML('beforeend','<h3>Your household</h3><p id="householdName"></p><ul id="householdMembers" class="household-members"></ul><button id="createInvite" class="button">Create invitation code</button><div id="inviteCodePanel" class="hidden"><label for="inviteCode">Your invitation code</label><div class="invitation-copy"><input id="inviteCode" class="household-code" readonly spellcheck="false" autocomplete="off"><button type="button" class="primary" id="copyInviteCode">Copy code</button></div><p class="muted">Share privately. This code expires in 24 hours.</p><p id="inviteCopyStatus" role="status" aria-live="polite"></p></div><details><summary>Join another household</summary><p>Your current lists will move with you. Sync pending edits before joining.</p><label>Invitation code<input id="joinCode" autocomplete="off" maxlength="32"></label><button id="joinHousehold" class="button">Join and bring my lists</button></details><p id="householdError" class="error" role="alert"></p>');
 function resetInvitation(){$('#inviteCodePanel').classList.add('hidden');$('#inviteCode').value='';$('#inviteCopyStatus').textContent='';}

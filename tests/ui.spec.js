@@ -126,7 +126,7 @@ test('Visual review captures calendar, home and mobile dark mode',async({page})=
  await page.setViewportSize({width:390,height:844});await page.click('#themeBtn');await page.screenshot({path:'test-results/mobile.png'});
 });
 
-test('PocketBase settings UI connects, displays status, and disconnects', async({page})=>{
+test('PocketBase account UI connects, displays status, and disconnects', async({page})=>{
  await setup(page);
  await page.route('**/api/collections/users/auth-with-password', r => r.fulfill({
   status: 200,
@@ -147,8 +147,8 @@ test('PocketBase settings UI connects, displays status, and disconnects', async(
   json: { items: [] }
  }));
 
- await page.click('#settingsBtn');
- await expect(page.locator('#settingsDialog')).toBeVisible();
+ await page.click('#pbAccountBtn');
+ await expect(page.getByRole('dialog',{name:'Account & household',exact:true})).toBeVisible();
 
  await expect(page.locator('#pbDisconnectedState')).toBeVisible();
  await expect(page.locator('#pbConnectedState')).not.toBeVisible();
@@ -383,15 +383,29 @@ test('Google login automatically connects to PocketBase, provisions credentials,
  expect(storedAuth.token).toBe('mock-google-pb-token');
  expect(storedAuth.record?.email).toBe('alex.hearth@gmail.com');
 
- // Open settings dialog and check PocketBase connected status
+ // Preferences remain separate from account and household controls
  await page.click('#settingsBtn');
  await expect(page.locator('#settingsDialog')).toBeVisible();
+ await expect(page.locator('#themeSelect')).toBeVisible();
+ await expect(page.locator('#defaultView')).toBeVisible();
+ await expect(page.locator('#timezoneLabel')).toBeVisible();
+ await expect(page.locator('#settingsDialog #pbSection, #settingsDialog #householdName, #settingsDialog #accountStatus, #settingsDialog #spouseSetting')).toHaveCount(0);
+ await expect(page.locator('#accountDialog')).not.toBeVisible();
+ await page.getByRole('button',{name:'Close settings',exact:true}).click();
+
+ // Signed-in account opens its own accessible dialog with connected status
+ await page.click('#pbAccountBtn');
+ const accountDialog=page.getByRole('dialog',{name:'Account & household',exact:true});
+ await expect(accountDialog).toBeVisible();
+ await expect(accountDialog).toHaveAttribute('id','accountDialog');
+ await expect(page.locator('#settingsDialog')).not.toBeVisible();
  await expect(page.locator('#pbConnectedState')).toBeVisible();
  await expect(page.locator('#pbDisconnectedState')).not.toBeVisible();
  await expect(page.locator('#pbUserEmail')).toHaveText('alex.hearth@gmail.com');
  await expect(page.locator('#householdName')).toHaveText("Alex's Hearth");
  await expect(page.locator('#householdMembers')).toContainText('alex.hearth@gmail.com');
- await page.click('#settingsDialog [data-close]');
+ await page.getByRole('button',{name:'Close account',exact:true}).click();
+ await expect(accountDialog).not.toBeVisible();
 
  // Verify navigation to Home functions smoothly with active household
  await page.getByRole('button', {name: 'Home', exact: true}).click();
