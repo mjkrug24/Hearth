@@ -8,7 +8,7 @@ function getStorage() {
     if (typeof localStorage !== 'undefined') return localStorage;
   } catch {}
   return null;
-}  /pb_hooks
+}
 
 function readJson(key, fallback = null) {
   try {
