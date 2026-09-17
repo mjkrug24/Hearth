@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check": "node scripts/check-syntax.mjs",
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test tests/model.test.js tests/api.test.js tests/planning.test.js tests/offline.test.js tests/household.test.js tests/pocketbase.test.js tests/household-store.test.js",
