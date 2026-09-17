@@ -90,6 +90,22 @@ test('PocketBase auth lifecycle: login, register, and logout', async () => {
     const regAuth = await client.register('test@example.com', 'secret123');
     assert.equal(regAuth.token, 'mock-jwt-token');
     assert.equal(client.isAuthenticated(), true);
+
+    // setAuth helper persists credentials and connects
+    client.setAuth('direct-token', { id: 'user-2', email: 'google-user@example.com' });
+    assert.equal(client.isAuthenticated(), true);
+    assert.equal(client.user().email, 'google-user@example.com');
+    assert.equal(JSON.parse(mockStorage.getItem('hearth-pb-auth')).token, 'direct-token');
+
+    // setAuth with object payload
+    client.setAuth({ token: 'obj-token', record: { id: 'user-3', email: 'obj@example.com' } });
+    assert.equal(client.user().id, 'user-3');
+    assert.equal(client.isAuthenticated(), true);
+
+    // setAuth with null clears
+    client.setAuth(null);
+    assert.equal(client.isAuthenticated(), false);
+    assert.equal(client.user(), null);
   } finally {
     globalThis.fetch = origFetch;
   }

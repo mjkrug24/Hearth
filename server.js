@@ -9,7 +9,7 @@ process.env.APP_BASE_URL ||= 'http://localhost:'+port;
 const routes={
  '/auth/google':'./api/oauth/start.js','/auth/google/callback':'./api/oauth/callback.js',
  '/api/google/status':'./api/google/status.js','/api/google/events':'./api/google/events/index.js',
- '/api/google/share':'./api/google/share.js','/api/household':'./api/household.js','/api/household/batch':'./api/household/batch.js'
+ '/api/google/share':'./api/google/share.js','/api/google/pocketbase':'./api/google/pocketbase.js','/api/household':'./api/household.js','/api/household/batch':'./api/household/batch.js'
 };
 // Explicit public allowlist prevents .env, tokens, source APIs, and Git data being served.
 const publicFiles=['index.html','styles.css','warm.css','app.js','pocketbase.js','household-store.js','quick-add.js','cooking-mode.js','calendar-model.js','recipes.js','planning.js','offline.js','sw.js','household-ui.js','household-model.js','manifest.json','icon.svg','favicon.ico','icon-192.png','icon-512.png','icon-maskable.png','apple-touch-icon.png'];

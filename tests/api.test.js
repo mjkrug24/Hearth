@@ -14,3 +14,45 @@ test('Updates use PATCH on the original calendar with conflict protection',async
 test('Cross-site mutation is rejected before Google is called',async()=>{const res=response();await handler({method:'POST',headers:{origin:'https://untrusted.test'},query:{}},res);assert.equal(res.statusCode,403);});
 test('Household denies nonmembers and never sends them database rows',async()=>{const original=global.fetch;process.env.SUPABASE_URL='https://database.test';process.env.SUPABASE_SERVICE_ROLE_KEY='test-only';process.env.HOUSEHOLD_MEMBERS='owner@example.com,partner@example.com';const calls=[];global.fetch=async url=>{calls.push(url);return new Response(JSON.stringify({id:'stranger@example.com'}));};try{const res=response();await household({method:'GET',headers:{},googleAccess:Promise.resolve('fake')},res);assert.equal(res.data.shared,false);assert(calls.every(url=>!url.includes('database.test')));}finally{global.fetch=original;delete process.env.SUPABASE_URL;delete process.env.SUPABASE_SERVICE_ROLE_KEY;delete process.env.HOUSEHOLD_MEMBERS;}});
 test('Household edits write one row into the configured household',async()=>{const original=global.fetch;process.env.SUPABASE_URL='https://database.test';process.env.SUPABASE_SERVICE_ROLE_KEY='test-only';process.env.HOUSEHOLD_MEMBERS='owner@example.com,partner@example.com';let payload;global.fetch=async(url,options={})=>{if(url.includes('googleapis'))return new Response(JSON.stringify({id:'partner@example.com'}));if(!options.method||options.method==='GET')return new Response(JSON.stringify([]));payload=JSON.parse(options.body);return new Response(JSON.stringify(payload.p_changes.map(c=>({...c.item,household:payload.p_household}))));};try{const res=response();await household({method:'POST',headers:{origin:'https://example.test'},googleAccess:Promise.resolve('fake'),body:{id:'d247d892-f015-4a79-ab23-d6cd0dce9669',kind:'tasks',name:'Test task',household:'attacker-supplied'}},res);assert.equal(res.statusCode,200);assert.equal(payload.p_household,'home');assert.equal(payload.p_changes[0].item.name,'Test task');}finally{global.fetch=original;delete process.env.SUPABASE_URL;delete process.env.SUPABASE_SERVICE_ROLE_KEY;delete process.env.HOUSEHOLD_MEMBERS;}});
+
+test('Google-PocketBase password derivation is deterministic, case-insensitive, and distinct per account', async () => {
+  const {derivePocketBasePassword} = await import('../api/google/pocketbase.js');
+  const p1 = derivePocketBasePassword('user@example.com', 'test-secret');
+  const p2 = derivePocketBasePassword('USER@EXAMPLE.COM', 'test-secret');
+  const p3 = derivePocketBasePassword('other@example.com', 'test-secret');
+  assert.equal(p1, p2);
+  assert.notEqual(p1, p3);
+  assert(p1.length >= 20);
+  assert(/[A-Z]/.test(p1) && /[a-z]/.test(p1) && /\d/.test(p1) && /[^A-Za-z0-9]/.test(p1));
+});
+
+test('Google-PocketBase bridge authenticates existing user or registers new user', async () => {
+  const {default: pbBridge} = await import('../api/google/pocketbase.js');
+  const original = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method, body: options.body ? JSON.parse(options.body) : null });
+    if (url.includes('googleapis.com')) {
+      return new Response(JSON.stringify({ id: 'family@google.com' }));
+    }
+    if (url.includes('/api/collections/users/auth-with-password')) {
+      return new Response(JSON.stringify({ token: 'pb-auth-token-123', record: { id: 'usr-1', email: 'family@google.com' } }));
+    }
+    return new Response(JSON.stringify({}), { status: 404 });
+  };
+  try {
+    const res = response();
+    await pbBridge({
+      method: 'POST',
+      headers: { origin: 'https://example.test' },
+      googleAccess: Promise.resolve('fake-token'),
+      body: { pbUrl: 'https://pb.test' }
+    }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.data.token, 'pb-auth-token-123');
+    assert.equal(res.data.record.email, 'family@google.com');
+  } finally {
+    global.fetch = original;
+  }
+});
+

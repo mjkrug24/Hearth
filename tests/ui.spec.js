@@ -333,3 +333,67 @@ test('Household calendar sharing modal displays members with permission selector
  // Check external share is shown
  await expect(page.locator('#sharingRules')).toContainText('external@example.com');
 });
+
+test('Google login automatically connects to PocketBase, provisions credentials, and activates household store', async({page})=>{
+ await page.route('**/api/google/status', r => r.fulfill({
+  json: {
+   configured: true,
+   connected: true,
+   account: 'alex.hearth@gmail.com',
+   members: ['alex.hearth@gmail.com'],
+   partner: null,
+   householdConfigured: false
+  }
+ }));
+ await page.route('**/api/google/events*', r => r.fulfill({json:{calendars:[], events:[]}}));
+ let bridgeCalled = false;
+ await page.route('**/api/google/pocketbase', r => {
+  bridgeCalled = true;
+  return r.fulfill({
+   status: 200,
+   json: {
+    token: 'mock-google-pb-token',
+    record: { id: 'usr-google-1', email: 'alex.hearth@gmail.com', name: 'alex' }
+   }
+  });
+ });
+ await page.route('**/api/hearth/snapshot', r => r.fulfill({
+  json: {
+   household: { id: 'home-alex', name: "Alex's Hearth" },
+   members: [{ id: 'usr-google-1', email: 'alex.hearth@gmail.com' }],
+   items: [],
+   events: [],
+   settings: {}
+  }
+ }));
+ await page.route('**/api/hearth/settings', r => r.fulfill({json:{}}));
+ await page.route('**/api/collections/hearth_*', r => r.fulfill({json:{items:[]}}));
+
+ await page.goto('/?sync=connected');
+
+ // Verify auth overlay is hidden and bridge was triggered
+ await expect(page.locator('#authOverlay')).not.toBeVisible();
+ await expect.poll(() => bridgeCalled).toBe(true);
+
+ // Verify topbar shows the user from PocketBase auth
+ await expect(page.locator('#pbAccountText')).toHaveText('alex.hearth');
+
+ // Check that hearth-pb-auth was stored in localStorage
+ const storedAuth = await page.evaluate(() => JSON.parse(localStorage.getItem('hearth-pb-auth') || '{}'));
+ expect(storedAuth.token).toBe('mock-google-pb-token');
+ expect(storedAuth.record?.email).toBe('alex.hearth@gmail.com');
+
+ // Open settings dialog and check PocketBase connected status
+ await page.click('#settingsBtn');
+ await expect(page.locator('#settingsDialog')).toBeVisible();
+ await expect(page.locator('#pbConnectedState')).toBeVisible();
+ await expect(page.locator('#pbDisconnectedState')).not.toBeVisible();
+ await expect(page.locator('#pbUserEmail')).toHaveText('alex.hearth@gmail.com');
+ await expect(page.locator('#householdName')).toHaveText("Alex's Hearth");
+ await expect(page.locator('#householdMembers')).toContainText('alex.hearth@gmail.com');
+ await page.click('#settingsDialog [data-close]');
+
+ // Verify navigation to Home functions smoothly with active household
+ await page.getByRole('button', {name: 'Home', exact: true}).click();
+ await expect(page.locator('#dashboard')).toBeVisible();
+});

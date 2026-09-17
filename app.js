@@ -106,8 +106,26 @@ async function sync(){
   }catch(e){if(sequence!==syncSequence)return;$('#syncStatus').textContent='Sync failed — retry';notice(e.message);if(e.status===401){state.connected=false;$('#connectBtn').textContent='Reconnect';}}
   finally{if(sequence===syncSequence){state.loading=false;$('#connectBtn').disabled=false;}}
 }
+async function bridgeGoogleToPocketBase(){
+  try{
+    const res=await post('/api/google/pocketbase',{pbUrl:pb.getUrl()});
+    if(res?.token&&res?.record){
+      pb.setAuth(res.token,res.record);
+      setupPocketBaseSubscriptions();
+      await loadPocketBaseData();
+      updatePocketBaseUI();
+      return true;
+    }
+    if(res?.collision){
+      toast('PocketBase account already exists with a manual password. Sign in below to link.');
+    }
+  }catch(e){
+    console.warn('PocketBase auto-connect via Google skipped/failed:',e.message);
+  }
+  return false;
+}
 async function initConnection(){
-  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;updatePocketBaseUI();$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){localStorage.setItem('hearth-google-authed','1');hideAuthOverlay();state.events=[];await sync();await flushQueue();}else{localStorage.removeItem('hearth-google-authed');if(!pb.isAuthenticated()&&!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){showAuthOverlay();}}}
+  try{const s=await api('/api/google/status');if(state.account!==(s.account||'device')){$$('dialog[open]').forEach(d=>d.close());}state.connected=s.connected;state.configured=s.configured;state.verified=!!s.connected;state.account=s.account||'device';state.partner=s.partner||null;state.householdConfigured=s.householdConfigured;updatePocketBaseUI();$('#connectBtn').textContent=s.connected?'Sync now':'Connect Google';$('#syncStatus').textContent=s.connected?'Connected':s.configured?'Sign in to see your calendars':'Google connection needs setup';if(s.connected){localStorage.setItem('hearth-google-authed','1');hideAuthOverlay();state.events=[];if(!pb.isAuthenticated()){await bridgeGoogleToPocketBase();}await sync();await flushQueue();}else{localStorage.removeItem('hearth-google-authed');if(!pb.isAuthenticated()&&!localStorage.getItem('hearth-guest')&&!sessionStorage.getItem('hearth-guest')){showAuthOverlay();}}}
   catch{const cached=read('hearth-account-cache',null);if(cached){Object.assign(state,{account:cached.account,calendars:colorizeCalendars(cached.calendars),events:[...cached.events.filter(e=>e.googleCalendarId),...state.localEvents],connected:true,partner:cached.partner,verified:false});$('#syncStatus').textContent='Offline · cached calendars';$('#connectBtn').textContent='Retry sync';}else $('#syncStatus').textContent='Offline · local calendar';}
   updatePocketBaseUI();await loadHome();render();
 }
@@ -466,6 +484,7 @@ $('#pbDisconnectBtn').onclick=()=>{
  pb.logout();leaveHousehold();$('#settingsDialog').close();
  localStorage.removeItem('hearth-guest');
  sessionStorage.removeItem('hearth-guest');
+ localStorage.removeItem('hearth-google-authed');
  updatePocketBaseUI();
  toast('Signed out of Hearth');
  showAuthOverlay();
@@ -533,7 +552,11 @@ if(authGuestBtn)authGuestBtn.onclick=()=>{
 };
 
 const authGoogleBtn=$('#authGoogleBtn');
-if(authGoogleBtn)authGoogleBtn.onclick=()=>location.assign('/auth/google');
+if(authGoogleBtn)authGoogleBtn.onclick=()=>{
+  const serverUrl=($('#authServerUrl')?.value.trim())||pb.getUrl();
+  if(serverUrl)pb.setUrl(serverUrl);
+  location.assign('/auth/google');
+};
 
 const authCard=$('#authCard');
 if(authCard)authCard.onsubmit=async(e)=>{

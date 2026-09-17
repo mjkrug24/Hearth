@@ -75,6 +75,21 @@ export class PocketBaseClient {
     return this.auth;
   }
 
+  setAuth(token, record) {
+    if (typeof token === 'object' && token !== null && !record) {
+      this.auth = { token: token.token, record: token.record };
+    } else {
+      this.auth = token ? { token, record } : null;
+    }
+    writeJson(STORAGE_AUTH, this.auth);
+    if (this.auth?.token) {
+      this.connectRealtime();
+    } else {
+      this.disconnectRealtime();
+    }
+    return this.auth;
+  }
+
   isAuthenticated() {
     return !!(this.auth && this.auth.token);
   }
