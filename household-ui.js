@@ -119,7 +119,21 @@ export function installHousehold(ctx){
  $('#groceryForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),b=e.target.querySelector('button');b.disabled=true;try{await homeChange('groceries',{id:crypto.randomUUID(),name:f.get('name').trim(),quantity:f.get('quantity'),amount:Number(f.get('amount'))||0,unit:f.get('unit'),done:false});e.target.reset();}catch(err){toast(err.message||'Could not add item');}finally{b.disabled=false;}};
  $('#pantryForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),b=e.target.querySelector('button');b.disabled=true;try{await homeChange('pantry',{id:crypto.randomUUID(),name:f.get('name').trim(),amount:Number(f.get('amount'))||0,unit:f.get('unit'),expires:f.get('expires'),done:false});e.target.reset();}catch(err){toast(err.message||'Could not add item');}finally{b.disabled=false;}};
  $('#taskFilter').onchange=renderTasks;$('#shoppingMode').onchange=e=>groceryCard.classList.toggle('shopping-mode',e.target.checked);$('#transferPurchased').onclick=()=>transfer(homeItems('groceries').filter(i=>i.done));
- $('#shopWalmart').onclick=()=>{const items=homeItems('groceries').filter(i=>!i.done);if(!items.length)return toast('Your grocery list is clear!');items.forEach(i=>window.open('https://www.walmart.com/search?q='+encodeURIComponent(i.name),'_blank','noopener'));toast('Opening '+items.length+' items at Walmart');};
+ document.body.insertAdjacentHTML('beforeend',`<dialog id="walmartDialog" aria-labelledby="walmartTitle"><div class="dialog-heading"><h2 id="walmartTitle">Shop at Walmart</h2><button type="button" class="icon" data-close aria-label="Close Walmart shopping">×</button></div><p class="muted">Copy your remaining groceries, or search for products below. Choose products and quantities in Walmart before adding them to your cart.</p><label for="walmartList">Your shopping list</label><textarea id="walmartList" rows="8" readonly></textarea><div class="dialog-actions"><button type="button" class="primary" id="copyWalmartList">Copy list</button><a class="button" href="https://www.walmart.com/" target="_blank" rel="noopener noreferrer">Open Walmart ↗</a></div><p id="walmartCopyStatus" role="status" aria-live="polite"></p><h3>Find individual items</h3><div id="walmartItems"></div></dialog>`);
+ $('#shopWalmart').onclick=()=>{
+  const items=homeItems('groceries').filter(i=>!i.done);if(!items.length)return toast('Your grocery list is clear!');
+  const clean=value=>String(value??'').replace(/\s+/g,' ').trim();
+  const lines=items.map(i=>{const amount=Number(i.amount),measured=Number.isFinite(amount)&&amount>0;return clean(i.name)+(measured?' — '+amount+' '+clean(i.unit||'each'):'')+(clean(i.quantity)?' ('+clean(i.quantity)+')':'');});
+  $('#walmartList').value=lines.join('\n');$('#walmartCopyStatus').textContent='';
+  $('#walmartItems').innerHTML=items.map((i,n)=>`<a class="walmart-product" href="https://www.walmart.com/search?q=${encodeURIComponent(i.name)}" target="_blank" rel="noopener noreferrer"><span>${esc(lines[n])}</span><span aria-hidden="true">↗</span><span class="sr-only"> (search Walmart in a new tab)</span></a>`).join('');
+  $('#walmartDialog').showModal();$('#copyWalmartList').focus();
+ };
+ $('#copyWalmartList').onclick=async()=>{
+  const button=$('#copyWalmartList'),text=$('#walmartList').value;button.disabled=true;
+  try{await navigator.clipboard.writeText(text);$('#walmartCopyStatus').textContent='Shopping list copied.';}
+  catch{$('#walmartList').focus();$('#walmartList').select();$('#walmartCopyStatus').textContent='Select and copy the list above. Automatic copying is unavailable in this browser.';}
+  finally{button.disabled=false;}
+ };
  for(const prefix of ['recipe','picker'])for(const suffix of ['Search','Time','Favorites','Pantry','UseSoon'])$('#'+prefix+suffix).addEventListener(suffix==='Search'?'input':'change',()=>recipeCards(prefix,prefix==='picker'?'#pickerRecipes':'#recipeList',prefix==='picker'));
  $('#recipeServings').oninput=renderRecipe;
  $('#favoriteRecipe').onclick=()=>{const list=favorites(),id=selectedRecipe.id;write('hearth-favorites-'+(state.shared?state.homeAccount:'device'),list.includes(id)?list.filter(x=>x!==id):[...list,id]);renderRecipe();recipeCards();if(ctx.syncSettingsToPocketBase)ctx.syncSettingsToPocketBase();};
