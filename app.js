@@ -59,6 +59,7 @@ async function uploadDeviceDataToPocketBase(){if(!householdStore)throw Error('Si
 
 function updatePocketBaseUI(){
  const isAuth=pb.isAuthenticated();
+ if(!isAuth&&$('#inviteCodePanel'))resetInvitation();
  if($('#householdMembers')){$('#householdName').textContent=householdStore?.data.household?.name||'Connecting to your household…';$('#householdMembers').innerHTML=(householdStore?.data.members||[]).map(m=>'<li>'+esc(m.email)+'</li>').join('');$('#createInvite').classList.toggle('hidden',householdStore?.data.household?.owner!==pb.user()?.id);}
  const accountText=$('#pbAccountText'),accountBtn=$('#pbAccountBtn');
  if(accountText){
@@ -547,8 +548,20 @@ if(authCard)authCard.onsubmit=async(e)=>{
 const pbAccountBtn=$('#pbAccountBtn');
 if(pbAccountBtn)pbAccountBtn.onclick=()=>{if(pb.isAuthenticated())openSettings();else showAuthOverlay();};
 
-$('#pbConnectedState').insertAdjacentHTML('beforeend','<h3>Your household</h3><p id="householdName"></p><ul id="householdMembers" class="household-members"></ul><button id="createInvite" class="button">Create invitation code</button><p id="inviteCode" class="household-code" role="status"></p><details><summary>Join another household</summary><p>Your current lists will move with you. Sync pending edits before joining.</p><label>Invitation code<input id="joinCode" autocomplete="off" maxlength="32"></label><button id="joinHousehold" class="button">Join and bring my lists</button></details><p id="householdError" class="error" role="alert"></p>');
-$('#createInvite').onclick=async()=>{$('#createInvite').disabled=true;try{const result=await pb.invite();$('#inviteCode').textContent=result.code+' — share privately; expires in 24 hours.';}catch(e){$('#householdError').textContent=e.message;}finally{$('#createInvite').disabled=false;}};
+$('#pbConnectedState').insertAdjacentHTML('beforeend','<h3>Your household</h3><p id="householdName"></p><ul id="householdMembers" class="household-members"></ul><button id="createInvite" class="button">Create invitation code</button><div id="inviteCodePanel" class="hidden"><label for="inviteCode">Your invitation code</label><div class="invitation-copy"><input id="inviteCode" class="household-code" readonly spellcheck="false" autocomplete="off"><button type="button" class="primary" id="copyInviteCode">Copy code</button></div><p class="muted">Share privately. This code expires in 24 hours.</p><p id="inviteCopyStatus" role="status" aria-live="polite"></p></div><details><summary>Join another household</summary><p>Your current lists will move with you. Sync pending edits before joining.</p><label>Invitation code<input id="joinCode" autocomplete="off" maxlength="32"></label><button id="joinHousehold" class="button">Join and bring my lists</button></details><p id="householdError" class="error" role="alert"></p>');
+function resetInvitation(){$('#inviteCodePanel').classList.add('hidden');$('#inviteCode').value='';$('#inviteCopyStatus').textContent='';}
+$('#createInvite').onclick=async()=>{
+ const account=pb.user()?.id,home=householdStore?.data.household?.id;$('#createInvite').disabled=true;$('#householdError').textContent='';
+ try{const result=await pb.invite();if(account!==pb.user()?.id||home!==householdStore?.data.household?.id)return;$('#inviteCode').value=result.code;$('#inviteCodePanel').classList.remove('hidden');$('#inviteCopyStatus').textContent='';$('#copyInviteCode').focus();}
+ catch(e){$('#householdError').textContent=e.message;}finally{$('#createInvite').disabled=false;}
+};
+$('#inviteCode').onfocus=()=>$('#inviteCode').select();
+$('#copyInviteCode').onclick=async()=>{
+ const input=$('#inviteCode'),code=input.value,button=$('#copyInviteCode');if(!code)return;button.disabled=true;
+ try{await navigator.clipboard.writeText(code);if(input.value===code)$('#inviteCopyStatus').textContent='Invitation code copied.';}
+ catch{if(input.value===code){input.focus();input.select();$('#inviteCopyStatus').textContent='Code selected. Use your device’s Copy command to copy it.';}}
+ finally{button.disabled=false;}
+};
 $('#joinHousehold').onclick=async()=>{const b=$('#joinHousehold');b.disabled=true;try{if(householdStore?.data.queue.length)throw Error('Sync or resolve pending edits before joining.');await pb.join($('#joinCode').value.trim());await loadPocketBaseData();$('#joinCode').value='';toast('Joined your household');}catch(e){$('#householdError').textContent=e.message;}finally{b.disabled=false;}};
 $('#resetPassword').onclick=async()=>{const email=$('#authEmail').value.trim();if(!email||!$('#authEmail').validity.valid){$('#authError').textContent='Enter your account email first.';return;}$('#resetPassword').disabled=true;try{pb.setUrl($('#authServerUrl').value);await pb.resetPassword(email);$('#authError').textContent='If this address has an account, password reset instructions will arrive by email.';}catch(e){$('#authError').textContent=e.message;}finally{$('#resetPassword').disabled=false;}};
 let householdUI=installHousehold({state,settings,read,write,homeItems,homeChange,allRecipes,outbox,post,enqueue,flushQueue,cacheAccount,loadHome,toast,person,chip,displayEvents,openCustomRecipeModal,openEvent,sync,renderCalendar:render,syncSettingsToPocketBase,householdBatch});

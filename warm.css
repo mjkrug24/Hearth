@@ -52,5 +52,6 @@ dialog{padding:28px;border-radius:22px;max-height:calc(100dvh - 32px)}dialog::ba
 @media(max-width:700px){.topbar{gap:6px}.topbar .brand{min-width:0;margin-right:auto}.topbar #pbAccountBtn{padding:8px;min-width:44px}.topbar .top-spacer{display:none}}
 
 .cooking-dialog .cooking-check{flex-direction:row;align-items:flex-start}.cooking-dialog .wake-control{flex-direction:row}.cooking-check span{flex:1;min-width:0}.cooking-check input{flex-shrink:0}
+#inviteCodePanel{margin:16px 0}.invitation-copy{display:flex;align-items:center;gap:8px}.invitation-copy input{flex:1;min-width:0;font-family:monospace}.invitation-copy button{flex-shrink:0;min-height:44px}
 
 #quickDialog .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#quickDialog label{min-width:0}#quickDialog input,#quickDialog select{min-width:0;width:100%}

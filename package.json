@@ -11,7 +11,8 @@
     "icons": "node scripts/generate-icons.mjs",
     "screenshots": "node scripts/capture-ui.mjs",
     "setup:pb": "node scripts/setup-pocketbase.mjs",
-    "test:pb": "node scripts/test-pocketbase.mjs"
+    "test:pb": "node scripts/test-pocketbase.mjs",
+    "test:pb:legacy": "node scripts/test-pocketbase.mjs --legacy"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0"

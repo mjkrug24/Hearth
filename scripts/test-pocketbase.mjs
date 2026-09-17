@@ -3,20 +3,23 @@ import {mkdtemp,writeFile,cp,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-const binary=process.env.HEARTH_PB_BIN||path.join(tmpdir(),'hearth-pocketbase-0.40.4','pocketbase.exe');
+const legacyVersion=process.argv.includes('--legacy');
+const binary=process.env.HEARTH_PB_BIN||path.join(tmpdir(),'hearth-pocketbase-'+(legacyVersion?'0.19.2':'0.40.4'),'pocketbase.exe');
 const dir=await mkdtemp(path.join(tmpdir(),'hearth-integration-'));
 const root=process.cwd(),base='http://127.0.0.1:8199';
 const migrationDir=path.join(dir,'test-migrations');
 await cp(path.join(root,'pocketbase/pb_migrations'),migrationDir,{recursive:true});
-await writeFile(path.join(migrationDir,'1750000000_legacy_fixture.js'),`migrate(app=>{
- const users=app.findCollectionByNameOrId('users'),user=new Record(users);user.set('email','legacy@example.com');user.setPassword('Disposable-test-123');app.save(user);
- const c=new Collection({name:'hearth_items',type:'base'});for(const f of [new RelationField({name:'user',collectionId:users.id,maxSelect:1}),new TextField({name:'client_id'}),new TextField({name:'kind'}),new TextField({name:'name'}),new JSONField({name:'details'})])c.fields.add(f);app.save(c);
+await writeFile(path.join(migrationDir,'1750000000_legacy_fixture.js'),`migrate(dbOrApp=>{
+ const legacy=typeof dbOrApp.findCollectionByNameOrId!=='function',dao=legacy?new Dao(dbOrApp):null;
+ const app=legacy?{findCollectionByNameOrId:name=>dao.findCollectionByNameOrId(name),save:model=>typeof model.collection==='function'?dao.saveRecord(model):dao.saveCollection(model)}:dbOrApp;
+ const users=app.findCollectionByNameOrId('users'),user=new Record(users);user.set('email','legacy@example.com');if(legacy)user.set('username','legacytest');user.setPassword('Disposable-test-123');app.save(user);
+ const c=new Collection({name:'hearth_items',type:'base'});if(legacy){for(const f of [{name:'user',type:'relation',options:{collectionId:users.id,maxSelect:1}},{name:'client_id',type:'text'},{name:'kind',type:'text'},{name:'name',type:'text'},{name:'details',type:'json'}])c.schema.addField(new SchemaField(f));}else{for(const f of [new RelationField({name:'user',collectionId:users.id,maxSelect:1}),new TextField({name:'client_id'}),new TextField({name:'kind'}),new TextField({name:'name'}),new JSONField({name:'details'})])c.fields.add(f);}app.save(c);
  const item=new Record(c);item.set('user',user.id);item.set('client_id','legacy-rice');item.set('kind','pantry');item.set('name','Rice');item.set('details',{amount:4,unit:'cup',expires:'2026-10-01'});app.save(item);
  const orphan=new Record(c);orphan.set('client_id','orphan');orphan.set('kind','tasks');orphan.set('name','Retained orphan');app.save(orphan);
 },()=>{});`);
 // Reapplying the additive migration must leave rows and household ownership intact.
 await writeFile(path.join(migrationDir,'1789516801_rerun.js'),await readFile(path.join(root,'pocketbase/pb_migrations/1789516800_household_sync.js')));
-const proc=spawn(binary,['serve','--http=127.0.0.1:8199','--dev=false','--dir='+dir,'--migrationsDir='+migrationDir,'--hooksDir='+path.join(root,'pocketbase/pb_hooks')],{windowsHide:true});let logs='';proc.stdout.on('data',b=>logs+=b);proc.stderr.on('data',b=>logs+=b);
+const proc=spawn(binary,['serve','--http=127.0.0.1:8199',legacyVersion?'--debug=false':'--dev=false','--dir='+dir,'--migrationsDir='+migrationDir,'--hooksDir='+path.join(root,'pocketbase/pb_hooks')],{windowsHide:true});let logs='';proc.stdout.on('data',b=>logs+=b);proc.stderr.on('data',b=>logs+=b);
 async function request(route,token,body,expected=200){const r=await fetch(base+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Authorization:token||''},body:body?JSON.stringify(body):undefined});const t=await r.text();assert.equal(r.status,expected,t);return t?JSON.parse(t):null;}
 async function user(email){await request('/api/collections/users/records','',{email,password:'Disposable-test-123',passwordConfirm:'Disposable-test-123'});return request('/api/collections/users/auth-with-password','',{identity:email,password:'Disposable-test-123'});}
 try{

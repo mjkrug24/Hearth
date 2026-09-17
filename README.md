@@ -81,6 +81,11 @@ The app does not implement full Google Calendar parity: Google remains the place
 
 ## PocketBase installation and upgrade
 
+**Keeping `spectado/pocketbase:0.19.2` on Unraid?** The bundled server scripts now
+support that version. Follow [the Unraid installation steps](pocketbase/UNRAID.md)
+to mount the two folders without changing your image or data path. Both 0.19.2
+and 0.40.4 pass the isolated integration checks.
+
 1. Back up PocketBase's data directory. Test against a restored copy first. This version is verified with **PocketBase 0.40.4**; follow its upgrade instructions if your server is older.
 2. Copy both repository directories **pocketbase/pb_migrations** and **pocketbase/pb_hooks** to the server. Start PocketBase with those migration/hook directories, or place them beside the executable under the default names.
 3. The additive migration **1789516800_household_sync.js** creates or upgrades collections, locks raw writes, and scopes reads. Existing items with a recorded creator move to a separate household for that creator. Historical broad access is not treated as proof of membership. Use invitation codes to reconnect members.
